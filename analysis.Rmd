@@ -1,803 +1,911 @@
 ---
 title: "Adapting reintroduction tactics in successive trials increases the likelihood of establishment for an endangered carnivore in a fenced sanctuary"
-author: "Wilson B A, Evans M J, Batson W G, Banks S C, Gordon I J,  Fletcher D B, Wimpenny C, Newport J, Belton E, Rypalski A, Portas T & Manning A D"
-date: "21 September 2021"
+author: "Wilson B A, Evans M J, Batson W G, Banks S C, Gordon I J, Fletcher D B, Wimpenny C, Newport J, Belton E, Rypalski A, Portas T & Manning A D"
+date: "1 August 2023"
 output:
   html_document:
     toc: true
+    number_sections: true
     toc_depth: 3
     toc_float:
       collapsed: true
-    theme: united
-    highlight: tango
+    theme: cerulean
+    highlight: pygments
 editor_options: 
   chunk_output_type: console
+  
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'tutorial.html')) })
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo=TRUE)
+knitr::opts_chunk$set(echo=TRUE, eval=FALSE)
 ```
 
-# **1. Spatial analysis**
+# **Data preparation**
 
-## **1.1 Load, project, and plot MFWS shapefile**
+First, we installed the [pacman Package Management Tool](https://cran.r-project.org/web/packages/pacman/index.html), which allows us to install and load subsequent packages in a condensed and efficient way. 
+
+```{r, eval=FALSE}
+#install.packages("pacman")
+```
 
 ```{r, results='hide', warning=FALSE, message=FALSE}
-
-#library(adehabitatLT), library(circular), library(maptools)
-#library(move), library(raster), library(RCurl), library(readr)
-#library(rgeos), library(xts)
-
-library(sp)
-library(rgdal)
-library(maptools)
-library(ggmap)
-library(ggplot2)
-```
-  
-```{r, results='hide', warning=FALSE, message=FALSE}
-mfws <- readOGR(dsn=path.expand("C:/Users/belsp/Google Drive/Academia/Australian National University/Projects/Eastern quoll/Spatial/Data/GIS/mfws_fence.shp"))
-mfws <- spTransform(mfws, CRS("+proj=utm +zone=55 +ellps=WGS84"))
-mfws <- fortify(mfws) #library(ggplot2)
-
-setwd("C:/Users/belsp/Google Drive/Academia/Australian National University/Projects/Eastern quoll/Tactics/Data/R")
-den <- read.csv("0 raw den data.csv")
-plot(mfws, axes=T)
-
-ggplot() +
-  geom_path(mfws, mapping=aes(x=long, y=lat, group=group), colour="black") +
-  geom_point(den, mapping=aes(x=X, y=Y), size=1, col="darkblue", alpha=0.1) +
-  xlab("") + ylab("") +
-  coord_sf(xlim = c(149.145, 149.19), ylim = c(-35.185, -35.155))
+# Install and load required packages
+pacman::p_load(adehabitatLT, brglm, boot, effects, ggmap, ggplot2, 
+               ggpubr, janitor, lme4, lsmeans, maptools, multcomp, 
+               MuMIn, plyr, readr, readxl, rgdal, rstudioapi, sp, 
+               tidyverse, viridis)
 ```
 
-## **1.2 Cluster dens**
-
-  1. Create clusters for dens within 10m of one another
+We also set the working directly to where this R markdown is saved using the `rstudioapi` package.
 
 ```{r}
-setwd("...")
-den <- read.csv('0 raw den data.csv') #read data
-den <- subset(den,BankID!="EQ15" & BankID!="EQ16" & BankID!="EQ17" & 
-                DenID!="119" & DenID!="1682" & History=="Alive" & 
-                X!="NA" & DaysPostRelease<43)
+# Set the working directory to where this markdown is saved
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+```
 
-xy <- data.frame(cbind(den$X,den$Y)) #created xy dataframe
-distxy <- dist(xy) #create distance matrix
-chc <- hclust(distxy) #hierarchical clustering
-chc.d10 <- cutree(chc, h=12) #distance with a 10m threshold 
-den$cluster <- chc.d10 #append to the end of the datasheet
-write.csv(den,file="1 clusters.csv") #write to file
+# **Calculating analysis**
+
+```{r, results='hide', warning=FALSE, message=FALSE}
+# Assign raw data filename to an object
+raw_data <- "data.xlsx"
+
+# Read in den location data
+den <- read_excel(raw_data, sheet="den locations") %>% 
+  clean_names() %>% 
+  rename(easting=x, northing=y)
+
+# Read in and project MFWS fence shapefile using rgdal
+mfws <- readOGR(dsn="shapefiles/mfws_fence.shp", verbose=FALSE) %>% 
+  spTransform(CRS("+proj=utm +zone=55 +ellps=WGS84")) %>%
+  # Transform shapefile into a dataframe
+  fortify(verbose=FALSE) %>%
+  mutate(lat=as.numeric(lat + 10000000), 
+         long=as.numeric(long))
+
+# Plot den locations on MFWS map for each trial
+ggplot() + 
+  geom_path(mfws, mapping=aes(x=long, y=lat, group=group), col="grey15") +
+  geom_jitter(den, mapping=aes(x=easting, y=northing, 
+                               col=factor(year_of_acquisition)), alpha=0.2) +
+  coord_sf(xlim=c(695750, 699250), ylim=c(6104250, 6107750)) +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_rect(fill="white"),
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank(), 
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.key = element_blank(), 
+        strip.background = element_blank()) +
+  facet_wrap(~factor(year_of_acquisition), ncol=3) +
+  scale_colour_manual(values = viridis(3, begin=0.9, end=0.1), name="Fence") +
+  xlab("") + ylab("") + labs(col="Trial")
+```
+
+## Cluster dens
+
+  1. Create clusters for dens within 10 m of one another
+
+```{r}
+den <- den %>% 
+  # Remove some founders
+  subset(bank_id!="EQ15" & bank_id!="EQ16" & bank_id!="EQ17" & 
+           # Remove duplicated rows
+           den_id!="119" & den_id!="1682" & 
+           # Select only animals that survived the establishment period
+           history=="Alive" & 
+           # Remove rows with no valid coordinates
+           easting!="NA" & 
+           # Select only rows within 42 days of release
+           days_post_release<43)
+
+# Create an xy dataframe
+xy <- data.frame(cbind(den$easting, den$northing))
+
+# Create a distance matrix
+distxy <- dist(xy)
+
+# Hierarchically cluster the distance matrix
+chc <- hclust(distxy)
+
+# Calculate distance between dens with a 10 m threshold
+chc.d10 <- cutree(chc, h=12)
+
+# Append cluster labels to the den df
+den$cluster <- chc.d10
 ```
 
   2. Calculate mean eastings and northings for each cluster
 
 ```{r}
-clusterdata <- read.csv('1 clusters.csv') #read data
-meanclusters <- ddply(clusterdata, .(cluster), summarize,  X2=mean(X), Y2=mean(Y))
-vlookup <- merge(clusterdata,meanclusters, by= "cluster" )
-vlookup <- arrange(vlookup,DenID) #arranges the data frame by DenID
-clusterdata <- arrange(clusterdata,DenID) #makes sure that they are in the same order
-clusterdata$meanX <- vlookup$X2
-clusterdata$meanY <- vlookup$Y2
-write.csv(vlookup,file="2 mean_clusters.csv")
+meanclusters <- plyr::ddply(den, .(cluster), summarize,  
+                            x2=mean(easting), y2=mean(northing))
+vlookup <- merge(den, meanclusters, by= "cluster" )
+
+# Sort df by den_id
+vlookup <- arrange(vlookup, den_id)
+
+# Sort df by den_id
+den <- arrange(den, den_id)
+
+den$mean_x <- vlookup$x2
+den$mean_y <- vlookup$y2
 ```
 
-## **1.3 Distance per day**
-
-Load MFWS polygon shapefile.
-
-```{r}
-mfws <- readOGR(dsn=path.expand("Z:/MULLIGANS-GOOROOYARROO/DATA/GIS/Eastern_quoll/PhDEQ/MFWS/final_fence_polygon_Apr09.shp")) #load MFWS shapefile   
-```
+## Distance per day
 
 Calculate distances travelled for the first quoll, "EQ01".
 
 ```{r}
-den <- subset(clusterdata,DaysBetween==1) #subset for consecutive days
-EQ <- subset(den, BankID=="EQ01")
-EQ$BankID <- factor(EQ$BankID) #converts to factor
+# Subset to consecutive days only
+den <- subset(den, days_between==1)
 
-EQ <- subset(den, BankID=="EQ01")
-EQ$BankID <- factor(EQ$BankID) #converts to factor
-pdate <- as.POSIXct(strptime(as.character(EQ$POSIXdate), "%Y.%m.%d ")) #convert date to a format POSIX needs
-data.xy=EQ[c("meanX", "meanY")]
-xysp <- SpatialPoints(data.xy) #creates a class Spatial Points for all locations
+# Remove irrelevant animal
+eq <- subset(den, bank_id=="EQ01")
+
+# Convert column to factor
+eq$bank_id <- factor(eq$bank_id)
+
+# Convert date to a form R can interact with
+pdate <- as.POSIXct(strptime(as.character(eq$posi_xdate), "%Y.%m.%d ")) 
+data_xy=eq[c("mean_x", "mean_y")]
+
+# Create a Spatial Points class for all locations
+xysp <- SpatialPoints(data_xy) 
 proj4string(xysp) <- CRS("+proj=utm +zone=55 +ellps=WGS84")
 
-sppt <- data.frame(xysp) #creates a Spatial Data Frame from sppt
-idsp <- data.frame(EQ$BankID) #creates a spatial data frame of ID
-merge <- data.frame(idsp) #merges ID and Date into the same spatial data frame
-coordinates(merge) <- sppt #adds ID and Date data frame with locations data frame
-move <- as.ltraj(xy=EQ[,c("meanX","meanY")], date=pdate, id=idsp) #creates an object of class ltraj to store movements
+# Create a spatial df of coordinates
+sppt <- data.frame(xysp) 
 
+# Create a spatial df of identities
+idsp <- data.frame(eq$bank_id)
+
+# Merge identities and dates into same spatial df
+merge <- data.frame(idsp) 
+
+# Merge identities and date to coordinates
+coordinates(merge) <- sppt 
+
+# Create an object of class ltraj to store movements
+move <- as.ltraj(xy=eq[,c("mean_x", "mean_y")], date=pdate, id=idsp) 
+
+# Plot movements and save to jpeg file
 jpeg(file="EQ01_plot.jpeg", width=5500, height=5000, units="px", res=800)
-plot(move,xlim=c(695750,699250),ylim=c(6104250,6107750),xlab="Easting",ylab="Northing",main="EQ01")
-plot(mfws, add=T)
+  # Plot movements
+  plot(move, xlim=c(695750, 699250), ylim=c(6104250, 6107750), 
+       xlab="Easting", ylab="Northing", main="EQ01")
+  plot(mfws, add=TRUE)
 dev.off()
 
-distEQ <- move[[1]]
-distEQ$BankID <- "EQ01"
-sum.table <- cbind(EQ,distEQ)
+dist_eq <- move[[1]]
+dist_eq$bank_id <- "EQ01"
+sum.table <- cbind(eq, dist_eq)
 ```
 
 ```{r}
-distEQ <- move[[1]]
-distEQ$BankID <- "EQ01"
-sum.table <- cbind(EQ,distEQ)
-EQIDs <- levels(den$BankID) #creates vector that loop looks at to get values
-EQIDs <- EQIDs[c(2:length(EQIDs))] #removes the first one to avoid duplicate later on
+dist_eq <- move[[1]]
+dist_eq$bank_id <- "EQ01"
+sum.table <- cbind(eq, dist_eq)
 
-for(i in EQIDs){
-  EQ <- subset(den, BankID==i)
-  EQ$BankID <- factor(EQ$BankID) #converts to factor
-  pdate <- as.POSIXct(strptime(as.character(EQ$POSIXdate),"%Y.%m.%d")) #convert date to a format POSIX needs
-  data.xy=EQ[c("meanX", "meanY")]
-  xysp <- SpatialPoints(data.xy) #creates a class Spatial Points for all locations
+# Create a vector the loop looks at to get values
+eq_ids <- levels(den$bank_id) 
+
+# Remove the first identity to avoid duplicating later
+eq_ids <- eq_ids[c(2:length(eq_ids))] 
+
+for(i in eq_ids){
+  eq <- subset(den, bank_id==i)
+  eq$bank_id <- factor(eq$bank_id) #converts to factor
+  pdate <- as.POSIXct(strptime(as.character(eq$posix_date),"%Y.%m.%d")) #convert date to a format POSIX needs
+  data_xy=eq[c("mean_x", "mean_y")]
+  xysp <- SpatialPoints(data_xy) #creates a class Spatial Points for all locations
   proj4string(xysp) <- CRS("+proj=utm +zone=55 +ellps=WGS84")
   
   sppt <- data.frame(xysp) #creates a Spatial Data Frame from sppt
-  idsp <- data.frame(EQ$BankID) #creates a spatial data frame of ID
+  idsp <- data.frame(eq$bank_id) #creates a spatial data frame of ID
   merge <- data.frame(idsp) #merges ID and Date into the same spatial data frame
   coordinates(merge) <- sppt #adds ID and Date data frame with locations data frame
-  move <- as.ltraj(xy=EQ[,c("meanX","meanY")], date=pdate, id=idsp) #creates an object of class ltraj to store movements
+  move <- as.ltraj(xy=eq[,c("mean_x","mean_y")], date=pdate, id=idsp) #creates an object of class ltraj to store movements
   
-  jpeg(file=paste(i,"plot.jpeg",sep="_"), width=5500, height=5000, units="px", res=800)
-  plot(move,xlim=c(695750,699250),ylim=c(6104250,6107750),xlab="Easting",ylab="Northing",main=paste(i))
+  jpeg(file=paste(i, "plot.jpeg", sep="_"), 
+       width=5500, height=5000, units="px", res=800)
+  plot(move, xlim=c(695750, 699250), ylim=c(6104250, 6107750), 
+       xlab="Easting", ylab="Northing", main=paste(i))
   plot(mfws, add=T)
   dev.off()
   
-  distEQ <- move[[1]]
-  distEQ$BankID <- i
-  EQtable <- cbind(EQ,distEQ)
-  sum.table <- rbind(sum.table,EQtable)
+  dist_eq <- move[[1]]
+  dist_eq$bank_id <- i
+  eqtable <- cbind(eq, dist_eq)
+  sum.table <- rbind(sum.table, eqtable)
 }
-
-write.csv(sum.table, file="3 mean_clusters_daily_distance.csv")
 ```
 
-## **1.4 Distance from release site**
+## Distance from release site
 
 ```{r}
-den <- read.csv('1 mean_cluster.csv')
-dfr <- den$dfr <- sqrt((den$ReleaseX-den$meanX)^2+(den$ReleaseY-den$meanY)^2)
-write.csv(den,file="3 mean_cluster_dfr.csv")
+den$dfr <- sqrt((den$release_x-den$mean_x)^2 + 
+                  (den$release_y-den$mean_y)^2)
 ```
 
-# **2. Models**
+# **Modelling**
 
-## **2.1 Data preparation**
+## Data preparation
 
 ```{r}
-library(effects)
-library(brglm)
-library(ggplot2)
-library(MuMIn)
-library(lme4)
-library(lsmeans)
-library(multcomp)
-library(boot)
+# Read in identities data
+animal <- read_excel(raw_data, sheet="identities") %>% 
+  clean_names() %>% 
+  mutate(year = factor(year), 
+         moved_perc = as.numeric(as.character(moved_perc)), 
+         distance_mean = as.numeric(as.character(distance_mean)), 
+         distance_mean_zero = as.numeric(as.character(distance_mean_zero)), 
+         # Create binary survival probability variable
+         fate = ifelse(fate=="Survived", 1, 0)) %>%
+  subset(bank_id!="EQ15" & bank_id!="EQ16" & bank_id!="EQ17" & 
+           bank_id!="EQ25" & bank_id!="EQ32" & bank_id!="EQ33" & 
+           bank_id!="EQ34" & bank_id!="EQ35" & bank_id!="EQ36" & 
+           bank_id!="EQ37" & bank_id!="EQ38" & bank_id!="EQ39" & 
+           year!="2017" & year!="2018" & year!="2018")
 
-setwd("C:/Users/belsp/Google Drive/Academia/Australian National University/Projects/Eastern quoll/Tactics/Data/R")
-animal <- read.csv('0 raw animal data.csv') #read data
+femanimal <- subset(animal, sex!="M" & year!="2016")
 
-animal$Year <- factor(animal$Year)
-animal$MovedPerc <- as.numeric(as.character(animal$MovedPerc))
-animal$DistanceMean <- as.numeric(as.character(animal$DistanceMean))
-animal$DistanceMeanZero <- as.numeric(as.character(animal$DistanceMeanZero))
-animal$Fate <- ifelse(animal$Fate=="Survived",1,0) #probability variable
-
-animal <- subset(animal, BankID!="EQ15" & BankID!="EQ16" & 
-                   BankID!="EQ17" & BankID!="EQ25" & 
-                   BankID!="EQ32" & BankID!="EQ33" & 
-                   BankID!="EQ34" & BankID!="EQ35" & 
-                   BankID!="EQ36" & BankID!="EQ37" & 
-                   BankID!="EQ38" & BankID!="EQ39" & 
-                   Year!="2017" & Year!="2018" & Year!="2018")
-
-femanimal <- subset(animal,Sex!="M" & Year!="2016")
-
-codenanimal <- subset(animal,BankID!="EQ02" & BankID!="EQ05" & 
-                        BankID!="EQ10" & BankID!="EQ11" & 
-                        BankID!="EQ12" & BankID!="EQ29")
+codenanimal <- subset(animal, bank_id!="EQ02" & bank_id!="EQ05" & 
+                        bank_id!="EQ10" & bank_id!="EQ11" & 
+                        bank_id!="EQ12" & bank_id!="EQ29")
 ```
 
-## **2.2 Survival models**
+## Survival
 
-### **Model 01 - Survival by trial (Fig 2A)**
+### By trial (fig_ 2A, model 1)
 
 ```{r}
-animal$Trial <- factor(animal$Trial)
-mod <- glm(Fate~Trial, data=animal, family=binomial(link=logit))
+animal$trial <- factor(animal$trial)
+mod <- glm(fate ~ trial, data=animal, 
+           family=binomial(link=logit))
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-pw <- glht(mod, mcp(Trial="Tukey"))  
-ph <- cld(pw,alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(Trial="Tukey")))
+pw <- glht(mod, mcp(trial="Tukey"))  
+ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
+summary(glht(mod, mcp(trial="Tukey")))
 
-jpeg(file=paste("Model 1 - Survival ~ Trial (Fig 2A).jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Survival by trial (fig_ 2A, model 1).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$Trial)
-effects$Trial <- factor(effects$Trial)
-effects$tukey <- c("a","b","b")
+effects <- data.frame(effects$trial)
+effects$trial <- factor(effects$trial)
+effects$tukey <- c("a", "b", "b")
 
-mod1 <- ggplot(effects, aes(x=Trial, y=fit, group=1)) + 
-  geom_errorbar(aes(ymin=lower, ymax=upper), colour="orange", width=0.1) +
-  geom_point(shape=21,size=3,fill="orange",colour="orange") +
+mod1 <- ggplot(effects, aes(x=trial, y=fit, group=1)) + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), 
+                colour="orange", width=0.1) +
+  geom_point(shape=21, size=3, 
+             fill="orange", colour="orange") +
   theme(axis.line=element_line(colour="black"), legend.position="none",
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
         panel.background=element_blank(), axis.title=element_text(),
         axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
         axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
         strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1.04)) +
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1.04)) +
   xlab("Trial") + ylab("Probability of survival") +
-  geom_text(aes(x=Trial, y=upper,label=tukey),nudge_y=0.05)
+  geom_text(aes(x=trial, y=upper, label=tukey), nudge_y=0.05)
 dev.off()
 mod1
 ```
 
-### **Model 02 - Survival by origin**
+### By origin (model 2)
 
 ```{r}
-mod <- glm(Fate~Origin, data=animal, family=binomial(link=logit))
+mod <- glm(fate ~ origin, data=animal, 
+           family=binomial(link=logit))
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-    mod <- glm(Fate~Origin, data=animal20162017, family=binomial(link=logit))
+    mod <- glm(fate ~ origin, data=animal20162017, 
+               family=binomial(link=logit))
     summary(mod)
-    anova(mod,test=c("Chisq"))
+    anova(mod, test=c("Chisq"))
 
-pw <- glht(mod, mcp(Origin="Tukey"))  
+pw <- glht(mod, mcp(origin="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(Origin="Tukey")))
+summary(glht(mod, mcp(origin="Tukey")))
 
-jpeg(file=paste("Model 2 - Survival ~ Origin.jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Survival by origin (model 2).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$Origin)
-effects$Origin <- factor(effects$Origin)
+effects <- data.frame(effects$origin)
+effects$origin <- factor(effects$origin)
 effects$tukey <- "a"
 
-mod2 <- ggplot(effects, aes(x=Origin, y=fit, group=1))
-mod2+ 
+mod2 <- ggplot(effects, aes(x=origin, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
-  geom_point(shape=21,size=3,fill="black",colour="black") +
+  geom_point(shape=21, size=3, fill="black", colour="black") +
   theme(axis.line=element_line(colour="black"),
         panel.grid.major=element_blank(),
         panel.grid.minor=element_blank(),
         panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
         axis.title=element_text(),
         strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1.1))+ #
-  xlab("Origin")+
-  ylab("Probability of survival") +
-  geom_text(aes(x=Origin, y=upper, label=tukey),nudge_y=0.06)
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1.1)) + 
+  xlab("Origin") + ylab("Probability of survival") +
+  geom_text(aes(x=origin, y=upper, label=tukey), nudge_y=0.06)
 dev.off()
 ```
 
-### **Model 03 - Survival by sex (Fig 2B)**
+### By sex (fig 2B, model 3)
 
 ```{r}
-animal$Sex <- factor(animal$Sex)
-mod <- glm(Fate~Sex, data=animal, family=binomial(link=logit))
+animal$sex <- factor(animal$sex)
+mod <- glm(fate ~ sex, data=animal, 
+           family=binomial(link=logit))
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-    animal2016$Sex <- factor(animal2016$Sex)
-    mod <- glm(Fate~Sex, data=animal2016, family=binomial(link=logit))
+    animal2016$sex <- factor(animal2016$sex)
+    mod <- glm(fate ~ sex, data=animal2016, 
+               family=binomial(link=logit))
     summary(mod)
-    anova(mod,test=c("Chisq"))
+    anova(mod, test=c("Chisq"))
     
-pw <- glht(mod, mcp(Sex="Tukey"))  
+pw <- glht(mod, mcp(sex="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(Sex="Tukey")))
+summary(glht(mod, mcp(sex="Tukey")))
 
-jpeg(file=paste("Model 3 - Survival ~ Sex (Fig 2B).jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("By sex (fig 2B, model 3).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$Sex)
-effects$Sex <- factor(effects$Sex)
-effects$tukey <- c("a","b")
+effects <- data.frame(effects$sex)
+effects$sex <- factor(effects$sex)
+effects$tukey <- c("a", "b")
 
-mod3 <- ggplot(effects, aes(x=Sex, y=fit, group=1))
-mod3 <- mod3+ 
+mod3 <- ggplot(effects, aes(x=sex, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), color="brown", width=0.1) +
-  geom_point(shape=21,size=3,fill="brown",color="brown") +
-  theme(axis.line=element_line(color="black"), legend.position="none", 
+  geom_point(shape=21,size=3, fill="brown", color="brown") +
+  theme(axis.line=element_line(color="black"), 
+        legend.position="none", 
         panel.grid.major=element_blank(),
         panel.grid.minor=element_blank(),
         panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"), #y axis tick labels
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"), #x axis tick labels
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
         axis.title=element_text(),
         strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1.04))+ #
-  xlab("Sex")+
-  ylab("Probability of survival") +
-  geom_text(aes(x=Sex, y=upper,label=tukey),nudge_y=0.05) +
-  theme(legend.position="none")
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1.04)) + 
+  xlab("Sex") + ylab("Probability of survival") +
+  geom_text(aes(x=sex, y=upper, label=tukey), nudge_y=0.05)
+
 dev.off()
 mod3
 ```
 
-### **Model 04 - Survival by den sharing**
+### By den sharing (model 4)
 
 ```{r}
-mod <- glm(Fate~CodenPA, data=codenanimal, family=binomial(link=logit))
+mod <- glm(fate ~ coden_pa, data=codenanimal, 
+           family=binomial(link=logit))
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-pw <- glht(mod, mcp(CodenPA="Tukey"))  
+pw <- glht(mod, mcp(coden_pa="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(CodenPA="Tukey")))
+summary(glht(mod, mcp(coden_pa="Tukey")))
 
-jpeg(file=paste("Model 4 - Survival ~ Den sharing.jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Survival by den sharing (model 4).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$CodenPA)
-effects$tukey <- c("a","a")
+effects <- data.frame(effects$coden_pa)
+effects$tukey <- c("a", "a")
 
-mod4 <- ggplot(effects, aes(x=CodenPA, y=fit, group=1))
-mod4+ 
+mod4 <- ggplot(effects, aes(x=coden_pa, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
-  geom_point(shape=21,size=3,fill="black",colour="black") + 
+  geom_point(shape=21, size=3, fill="black", colour="black") + 
   theme(axis.line=element_line(colour="black"),
         panel.grid.major=element_blank(),
         panel.grid.minor=element_blank(),
         panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
         axis.title=element_text(),
         strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1)) +
-  xlab("")+
-  ylab("Probability of survival") +
-  geom_text(aes(x=CodenPA, y=upper,label=tukey),nudge_y=0.06)
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1)) +
+  xlab("") + ylab("Probability of survival") +
+  geom_text(aes(x=coden_pa, y=upper, label=tukey), nudge_y=0.06)
 dev.off()
 ```
 
-### **Model 05 - Survival by pouch young**
+### By pouch young (model 5)
 
 ```{r}
-mod <- glm(Fate~PYPA, data=femanimal, family=binomial(link=logit))
+mod <- glm(fate ~ pypa, data=femanimal, 
+           family=binomial(link=logit))
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-pw <- glht(mod, mcp(PYPA="Tukey"))  
+pw <- glht(mod, mcp(pypa="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(PYPA="Tukey")))
+summary(glht(mod, mcp(pypa="Tukey")))
 
-jpeg(file=paste("Model 5 - Survival ~ Pouch young.jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Survival by pouch young (model 5).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$PYPA)
-effects$PYPA <- factor(effects$PYPA)
-effects$tukey <- c("a","a")
+effects <- data.frame(effects$pypa)
+effects$pypa <- factor(effects$pypa)
+effects$tukey <- c("a", "a")
 
-mod5 <- ggplot(effects, aes(x=PYPA, y=fit, group=1))
-mod5+ 
+mod5 <- ggplot(effects, aes(x=pypa, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
-  geom_point(shape=21,size=3,fill="black",colour="black") +
+  geom_point(shape=21, size=3, fill="black", colour="black") +
   theme(axis.line=element_line(colour="black"),
         panel.grid.major=element_blank(),
         panel.grid.minor=element_blank(),
         panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
         axis.title=element_text(),
         strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1)) +
-  xlab("Pouch young") +
-  ylab("Probability of survival") +
-  geom_text(aes(x=PYPA, y=upper,label=tukey),nudge_y=0.06) #not working...
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1)) +
+  xlab("Pouch young") + ylab("Probability of survival") +
+  geom_text(aes(x=pypa, y=upper, label=tukey), nudge_y=0.06) #not working...
+
 dev.off()
 ```
 
-## **2.3 Den sharing models**
+## Den sharing
 
-### **Model 06 - Den sharing by trial**
+### By trial (model 6)
 
 ```{r}
-codenanimal$Trial <- factor(codenanimal$Trial)
-mod <- glm(CodenPC~Trial, data=codenanimal)
+codenanimal$trial <- factor(codenanimal$trial)
+mod <- glm(coden_pc ~ trial, data=codenanimal)
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-pw <- glht(mod, mcp(Trial="Tukey"))  
+pw <- glht(mod, mcp(trial="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(Trial="Tukey")))
+summary(glht(mod, mcp(trial="Tukey")))
 
 #this plot is not right
-jpeg(file=paste("Model 6 - Den sharing ~ Trial.jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Den sharing by trial (model 6).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$Trial)
-effects$Year <- factor(effects$Trial)
-effects$tukey <- c("a","a","a")
+effects <- data.frame(effects$trial)
+effects$Year <- factor(effects$trial)
+effects$tukey <- c("a", "a", "a")
 
-mod6 <- ggplot(effects, aes(x=Trial, y=fit, group=1))
-mod6+ 
+mod6 <- ggplot(effects, aes(x=trial, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
-  geom_point(shape=21,size=3,fill="black",colour="black") +
-  theme(axis.line=element_line(colour="black"),
-        panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
-        axis.title=element_text(),
-        strip.text.y=element_blank()) +
-  xlab("Trial")+
-  ylab("Percentage of fixes \n found den sharing (%)") +
-  geom_text(aes(x=Trial, y=upper,label=tukey),nudge_y=3) #letters not in right position...
-dev.off()
-```
-### **Model 07 - Den sharing by sex**
-
-```{r}
-mod <- glm(CodenPC~Sex, data=codenanimal)
-summary(mod)
-anova(mod,test=c("Chisq"))
-
-pw <- glht(mod, mcp(Sex="Tukey"))  
-ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(Sex="Tukey")))
-
-#this plot is not right
-jpeg(file=paste("Model 7 - Den sharing ~  Sex.jpeg"), width=2500, height=2500, units="px", res=800)
-effects <- allEffects(mod)
-effects <- data.frame(effects$Sex)
-effects$Sex <- factor(effects$Sex)
-effects$tukey <- "a"
-
-mod7 <- ggplot(effects, aes(x=Sex, y=fit, group=1))
-mod7+ 
-  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
-  geom_point(shape=21,size=3,fill="black",colour="black") +
+  geom_point(shape=21, size=3, fill="black", colour="black") +
   theme(axis.line=element_line(colour="black"),
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
         panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
-        axis.title=element_text(),
-        strip.text.y=element_blank()) +
-  xlab("Sex")+
-  ylab("Percentage of fixes \n found den sharing (%)") +
-  geom_text(aes(x=Sex, y=upper,label=tukey),nudge_y=3)
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
+        axis.title=element_text(), 
+        strip.text.y=element_blank()) + 
+  xlab("Trial") + ylab("Percentage of fixes \n found den sharing (%)") +
+  geom_text(aes(x=trial, y=upper, label=tukey), nudge_y=3) #letters not in right position...
+
 dev.off()
 ```
 
-### **Model 7.5 - Den sharing by origin**
+### By sex (model 7)
 
 ```{r}
-mod <- glm(CodenPC~Origin, data=codenanimal)
+mod <- glm(coden_pc ~ sex, data=codenanimal)
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-pw <- glht(mod, mcp(Origin="Tukey"))  
+pw <- glht(mod, mcp(sex="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(Origin="Tukey")))
+summary(glht(mod, mcp(sex="Tukey")))
 
 #this plot is not right
-jpeg(file=paste("Model 7 - Den sharing ~  Origin.jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Den sharing by sex (model 7).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$Origin)
-effects$Origin <- factor(effects$Origin)
+effects <- data.frame(effects$sex)
+effects$sex <- factor(effects$sex)
 effects$tukey <- "a"
 
-mod7 <- ggplot(effects, aes(x=Origin, y=fit, group=1))
-mod7+ 
+mod7 <- ggplot(effects, aes(x=sex, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
-  geom_point(shape=21,size=3,fill="black",colour="black") +
+  geom_point(shape=21, size=3, fill="black", colour="black") +
   theme(axis.line=element_line(colour="black"),
-        panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
         axis.title=element_text(),
         strip.text.y=element_blank()) +
-  xlab("Origin")+
-  ylab("Percentage of fixes \n found den sharing (%)") +
-  geom_text(aes(x=Origin, y=upper,label=tukey),nudge_y=3)
+  xlab("Sex") + ylab("Percentage of fixes \n found den sharing (%)") +
+  geom_text(aes(x=sex, y=upper, label=tukey), nudge_y=3)
 dev.off()
 ```
 
-## **2.4 Movement models**
-
-### **Model 08 - Survival by movement (Fig 2C)**
+### By origin (model 7.5)
 
 ```{r}
-subdata <- animal[!is.na(animal$MovedPerc),] #changed it to a subdata
-subdata$Fate <- as.numeric(as.character(subdata$Fate)) # for some reason it was classified as a character vector
-mod <- glm(Fate~MovedPerc, data=subdata, family=binomial(link=logit)) #should be a binomial model
+mod <- glm(CodenPC ~ origin, data=codenanimal)
 summary(mod)
 anova(mod,test=c("Chisq"))
 
-new.dat <- data.frame(MovedPerc=seq(0.12,0.857, length.out=100)) #creates a vector for the prediction function to predict for
-predicted <- predict(mod, newdata=new.dat,se.fit=TRUE,type="link") #predicting on link scale
+pw <- glht(mod, mcp(origin="Tukey"))  
+ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
+summary(glht(mod, mcp(origin="Tukey")))
+
+#this plot is not right
+jpeg(file=paste("Den sharing by origin (model 7).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
+effects <- allEffects(mod)
+effects <- data.frame(effects$origin)
+effects$origin <- factor(effects$origin)
+effects$tukey <- "a"
+
+mod7 <- ggplot(effects, aes(x=origin, y=fit, group=1)) + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) + 
+  geom_point(shape=21, size=3, fill="black", colour="black") + 
+  theme(axis.line=element_line(colour="black"), 
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
+        strip.text.y=element_blank()) + 
+  xlab("Origin") + ylab("Percentage of fixes \n found den sharing (%)") + 
+  geom_text(aes(x=origin, y=upper, label=tukey), nudge_y=3)
+
+dev.off()
+```
+
+## Movement
+
+### Survival by movement (fig 2C, model 8)
+
+```{r}
+subdata <- animal[!is.na(animal$moved_perc),] #changed it to a subdata
+subdata$fate <- as.numeric(as.character(subdata$fate)) # for some reason it was classified as a character vector
+mod <- glm(fate ~ moved_perc, data=subdata, 
+           family=binomial(link=logit)) #should be a binomial model
+summary(mod)
+anova(mod, test=c("Chisq"))
+
+new.dat <- data.frame(moved_perc=seq(0.12, 0.857, length.out=100)) #creates a vector for the prediction function to predict for
+predicted <- predict(mod, newdata=new.dat, se.fit=TRUE, type="link") #predicting on link scale
 predicted <- data.frame(predicted)
 plotdat <- cbind(new.dat,predicted)
 plotdat$fit_r <- inv.logit(plotdat$fit) #creating the predicted value by transforming from the link scale to the response scale
 plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) #creating rough 95%CIs before transforming to the response scale
 plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit) #there are more complicated and robust ways such as profiling and permutations...
 
-jpeg(file=paste("Model 8 - Survival ~ Movement (Fig 2C).jpeg"), width=2500, height=2500, units="px", res=800)
-mod8 <- ggplot(plotdat, aes(x=MovedPerc, ylim(0,1), y=fit_r, group=1))
-mod8 <- mod8+ 
-  geom_ribbon(aes(ymin=lower_r,ymax=upper_r,linetype=NA),alpha=0.2,fill="forest green") +
-  geom_line(linetype=1,colour="forest green")+
-  geom_line(aes(y= upper_r ),linetype=3,colour="forest green",lwd=0.5)+ 
-  geom_line(aes(y= lower_r),linetype=3,colour="forest green",lwd=0.5)+
-  theme(axis.line=element_line(colour="black"), legend.position="none",
-        panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
-        axis.title=element_text(),
-        strip.text.y=element_blank()) +
-  scale_x_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1.04))+
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1.04))+
-  xlab("Proportion of days moved") +
-  ylab("Probability of survival")
+jpeg(file=paste("Survival by movement (fig 2C, model 8).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
+
+mod8 <- ggplot(plotdat, aes(x=moved_perc, ylim(0,1), y=fit_r, group=1)) + 
+  geom_ribbon(aes(ymin=lower_r, ymax=upper_r, linetype=NA), 
+              alpha=0.2, fill="forest green") +
+  geom_line(linetype=1, colour="forest green") +
+  geom_line(aes(y= upper_r ), linetype=3, 
+            colour="forest green", lwd=0.5) + 
+  geom_line(aes(y= lower_r), linetype=3, 
+            colour="forest green", lwd=0.5) +
+  theme(axis.line=element_line(colour="black"), 
+        legend.position="none",
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
+        strip.text.y=element_blank()) + 
+  scale_x_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1.04)) + 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1.04)) + 
+  xlab("Proportion of days moved") + ylab("Probability of survival")
+
 dev.off()
 mod8
 ```
-### **Model 09 - Survival by distance**
+
+### Survival by distance (model 9)
 
 ```{r}
-subdata <- animal[!is.na(animal$DistanceMean),] #changed it to a subdata
-subdata$Fate <- as.numeric(as.character(subdata$Fate)) # for some reason it was classified as a character vector
-mod <- glm(Fate~DistanceMean, data=subdata, family=binomial(link=logit)) #model including zeros
-summary(mod)
-anova(mod,test=c("Chisq"))
+subdata <- animal[!is.na(animal$distance_mean),] #changed it to a subdata
+subdata$fate <- as.numeric(as.character(subdata$fate)) # for some reason it was classified as a character vector
 
-new.dat <- data.frame(DistanceMean=seq(180,1050, length.out=100)) #creates a vector for the prediction function to predict for
-predicted <- predict(mod, newdata=new.dat,se.fit=TRUE,type="link") #predicting on link scale
+mod <- glm(fate ~ distance_mean, data=subdata, 
+           family=binomial(link=logit)) #model including zeros
+summary(mod)
+anova(mod, test=c("Chisq"))
+
+new.dat <- data.frame(distance_mean=seq(180, 1050, length.out=100)) #creates a vector for the prediction function to predict for
+predicted <- predict(mod, newdata=new.dat, se.fit=TRUE, type="link") #predicting on link scale
 predicted <- data.frame(predicted)
 plotdat <- cbind(new.dat,predicted)
 plotdat$fit_r <- inv.logit(plotdat$fit) #creating the predicted value by transforming from the link scale to the response scale
 plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) # creating rough 95%CIs before transforming to the response scale
 plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit)
 
-jpeg(file=paste("Model 9 - Survival ~ Distance.jpeg"), width=2500, height=2500, units="px", res=800)
-mod9 <- ggplot(plotdat, aes(x=DistanceMean, y=fit_r, group=1))
-mod9+ 
-  geom_ribbon(aes(ymin=lower_r,ymax=upper_r,linetype=NA),alpha=0.2,colour="grey40",fill="grey40")+ 
-  geom_line(linetype=1,colour="grey40")+
-  geom_line(aes(y= upper_r ),linetype=3,colour="grey40",lwd=0.5)+
-  geom_line(aes(y= lower_r),linetype=3,colour="grey40",lwd=0.5)+
-  theme(axis.line=element_line(colour="black"),
-        panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
-        axis.title=element_text(),
-        strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1))+ 
-  xlab("Distance moved between dens (m)") +
-  ylab("Probability of survival")
+jpeg(file=paste("Survival by distance (model 9).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
+
+mod9 <- ggplot(plotdat, aes(x=distance_mean, y=fit_r, group=1)) + 
+  geom_ribbon(aes(ymin=lower_r, ymax=upper_r, linetype=NA), 
+              alpha=0.2, colour="grey40", fill="grey40") + 
+  geom_line(linetype=1,colour="grey40") + 
+  geom_line(aes(y= upper_r ),linetype=3, colour="grey40", lwd=0.5) + 
+  geom_line(aes(y= lower_r),linetype=3, colour="grey40", lwd=0.5) + 
+  theme(axis.line=element_line(colour="black"), 
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
+        axis.title=element_text(), 
+        strip.text.y=element_blank()) + 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1)) + 
+  xlab("Distance moved between dens (m)") + ylab("Probability of survival")
+
 dev.off()
 ```
 
-***Excluding zeros***
+**Excluding zeros**
 
 ```{r}
-subdata <- animal[!is.na(animal$DistanceMeanZero),] #changed it to a subdata
-subdata$Fate <- as.numeric(as.character(subdata$Fate)) # for some reason it was classified as a character vector
+subdata <- animal[!is.na(animal$distance_mean_zero),] #changed it to a subdata
+subdata$fate <- as.numeric(as.character(subdata$fate)) # for some reason it was classified as a character vector
 
-mod <- glm(Fate~DistanceMeanZero, data=subdata, family=binomial(link=logit)) #model including zeros
+mod <- glm(fate ~ distance_mean_zero, data=subdata, 
+           family=binomial(link=logit)) #model including zeros
 summary(mod)
 anova(mod,test=c("Chisq"))
 
-mod <- glm(Fate~DistanceMeanZero, data=subdata, family=binomial(link=logit)) #model excluding zeros
+mod <- glm(fate ~ distance_mean_zero, data=subdata, 
+           family=binomial(link=logit)) #model excluding zeros
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-new.dat <- data.frame(DistanceMeanZero=seq(180,1050, length.out=100)) #creates a vector for the prediction function to predict for
-predicted <- predict(mod, newdata=new.dat,se.fit=TRUE,type="link") #predicting on link scale
+new.dat <- data.frame(distance_mean_zero=seq(180, 1050, length.out=100)) #creates a vector for the prediction function to predict for
+predicted <- predict(mod, newdata=new.dat, se.fit=TRUE, type="link") #predicting on link scale
 predicted <- data.frame(predicted)
 plotdat <- cbind(new.dat,predicted)
 plotdat$fit_r <- inv.logit(plotdat$fit) #creating the predicted value by transforming from the link scale to the response scale
 plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) # creating rough 95%CIs before transforming to the response scale
 plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit)
 
-jpeg(file=paste("Model 9 - Survival ~ Distance (nozeros).jpeg"), width=2500, height=2500, units="px", res=800)
-mod9 <- ggplot(plotdat, aes(x=DistanceMeanZero, y=fit_r, group=1))
-mod9+ 
-  geom_ribbon(aes(ymin=lower_r,ymax=upper_r,linetype=NA),alpha=0.2,colour="grey40",fill="grey40")+ 
-  geom_line(linetype=1,colour="grey40")+
-  geom_line(aes(y= upper_r ),linetype=3,colour="grey40",lwd=0.5)+
-  geom_line(aes(y= lower_r),linetype=3,colour="grey40",lwd=0.5)+
-  theme(axis.line=element_line(colour="black"),
-        panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
-        axis.title=element_text(),
-        strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1))+ 
-  xlab("Distance moved between dens (m)") +
-  ylab("Probability of survival")
+jpeg(file=paste("Survival by distance (nozeros, model 9).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
+
+mod9 <- ggplot(plotdat, aes(x=distance_mean_zero, y=fit_r, group=1)) + 
+  geom_ribbon(aes(ymin=lower_r, ymax=upper_r, linetype=NA), 
+              alpha=0.2, colour="grey40", fill="grey40") + 
+  geom_line(linetype=1, colour="grey40") + 
+  geom_line(aes(y= upper_r ), linetype=3, 
+            colour="grey40", lwd=0.5) + 
+  geom_line(aes(y= lower_r), linetype=3, 
+            colour="grey40", lwd=0.5) + 
+  theme(axis.line=element_line(colour="black"), 
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
+        strip.text.y=element_blank()) + 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1)) + 
+  xlab("Distance moved between dens (m)") + ylab("Probability of survival")
+
 dev.off()
 ```
 
-### **Model 10 - Movement by trial (Fig 3A)**
+### By trial (fig 3A, model 10)
 
 ```{r}
-codenanimal$Trial <- factor(codenanimal$Trial)
-mod <- glm(MovedPerc~Trial, data=codenanimal)
-summary(mod)
-anova(mod,test=c("Chisq"))
+codenanimal$trial <- factor(codenanimal$trial)
 
-pw <- glht(mod, mcp(Trial="Tukey"))  
+mod <- glm(moved_perc ~ trial, data=codenanimal)
+summary(mod)
+anova(mod, test=c("Chisq"))
+
+pw <- glht(mod, mcp(trial="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(Trial="Tukey")))
+summary(glht(mod, mcp(trial="Tukey")))
 
-jpeg(file=paste("Model 10 - Movement ~ Trial (Fig 3A).jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Movement by trial (fig 3A, model 10).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$Trial)
-effects$Trial <- factor(effects$Trial)
-effects$tukey <- c("a","b","b")
+effects <- data.frame(effects$trial)
+effects$trial <- factor(effects$trial)
+effects$tukey <- c("a", "b", "b")
 
-mod10 <- ggplot(effects, aes(x=Trial, y=fit, group=1))
-mod10 <- mod10+ 
-  geom_errorbar(aes(ymin=lower, ymax=upper), colour="orange", width=0.1) +
-  geom_point(shape=21,size=3,fill="orange",colour="orange") +
-  theme(axis.line=element_line(colour="black"),
-        panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
-        axis.title=element_text(),
-        strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1.04)) +
-  xlab("Trial") +
-  ylab("Proportion of days moved") +
-  geom_text(aes(x=Trial, y=upper,label=tukey),nudge_y=0.05)
+mod10 <- ggplot(effects, aes(x=trial, y=fit, group=1)) + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), 
+                colour="orange", width=0.1) + 
+  geom_point(shape=21, size=3, 
+             fill="orange", colour="orange") + 
+  theme(axis.line=element_line(colour="black"), 
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
+        strip.text.y=element_blank()) + 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1.04)) + 
+  xlab("Trial") + ylab("Proportion of days moved") +
+  geom_text(aes(x=trial, y=upper, label=tukey), nudge_y=0.05) 
 dev.off()
 mod10
 ```
-### **Model 11 - Movement by origin**
+
+### By origin (model 11)
 
 ```{r}
-mod <- glm(MovedPerc~Origin, data=animal)
+mod <- glm(moved_perc ~ origin, data=animal)
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-    mod <- glm(MovedPerc~Origin, data=animal20162017)
+    mod <- glm(moved_perc ~ origin, data=animal20162017)
     summary(mod)
-    anova(mod,test=c("Chisq"))
+    anova(mod, test=c("Chisq"))
 
-pw <- glht(mod, mcp(Origin="Tukey"))  
+pw <- glht(mod, mcp(origin="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(Origin="Tukey")))
+summary(glht(mod, mcp(origin="Tukey")))
 
-jpeg(file=paste("Model 11 - Movement ~ Origin.jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Movement by origin (model 11).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$Origin)
-effects$Origin <- factor(effects$Origin)
+effects <- data.frame(effects$origin)
+effects$origin <- factor(effects$origin)
 effects$tukey <- "a"
 
-mod11 <- ggplot(effects, aes(x=Origin, y=fit, group=1))
-mod11+ 
-  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
-  geom_point(shape=21,size=3,fill="black",colour="black") +
-  theme(axis.line=element_line(colour="black"),
-        panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
-        axis.title=element_text(),
-        strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1)) +
-  xlab("Origin")+
-  ylab("Proportion of days moved") +
-  geom_text(aes(x=Origin, y=upper,label=tukey),nudge_y=0.06)
+mod11 <- ggplot(effects, aes(x=origin, y=fit, group=1)) + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) + 
+  geom_point(shape=21, size=3, fill="black", colour="black") + 
+  theme(axis.line=element_line(colour="black"), 
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
+        strip.text.y=element_blank()) + 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1)) + 
+  xlab("Origin") + ylab("Proportion of days moved") + 
+  geom_text(aes(x=origin, y=upper, label=tukey), nudge_y=0.06)
 dev.off()
 ```
 
-### **Model 12 - Movement by sex (Fig 3B)**
+### By sex (fig 3B, model 12)
 
 ```{r}
-mod <- glm(MovedPerc~Sex, data=animal)
+mod <- glm(moved_perc ~ sex, data=animal)
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-    mod <- glm(MovedPerc~Sex, data=animal2016)
+    mod <- glm(moved_perc ~ sex, data=animal2016)
     summary(mod)
-    anova(mod,test=c("Chisq"))
+    anova(mod, test=c("Chisq"))
 
-pw <- glht(mod, mcp(Sex="Tukey"))  
+pw <- glht(mod, mcp(sex="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(Sex="Tukey")))
+summary(glht(mod, mcp(sex="Tukey")))
 
-jpeg(file=paste("Model 12 - Movement ~ Sex (Fig 3B).jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Movement by sex (fig 3B, model 12).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$Sex)
-effects$Sex <- factor(effects$Sex)
-effects$tukey <- c("a","b")
+effects <- data.frame(effects$sex)
+effects$sex <- factor(effects$sex)
+effects$tukey <- c("a", "b")
 
-mod12 <- ggplot(effects, aes(x=Sex, y=fit, group=1))
-mod12 <- mod12+ 
-  geom_errorbar(aes(ymin=lower, ymax=upper), colour="brown", width=0.1) +
-  geom_point(shape=21,size=3,fill="brown",colour="brown") +
-  theme(axis.line=element_line(colour="black"),
-        panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
-        axis.title=element_text(),
-        strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1.04)) +
-  xlab("Sex")+
-  ylab("Proportion of days moved") +
-  geom_text(aes(x=Sex, y=upper,label=tukey),nudge_y=0.05)
+mod12 <- ggplot(effects, aes(x=sex, y=fit, group=1)) + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), colour="brown", width=0.1) + 
+  geom_point(shape=21,size=3, fill="brown", colour="brown") + 
+  theme(axis.line=element_line(colour="black"), 
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
+        strip.text.y=element_blank()) + 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1.04)) + 
+  xlab("Sex") + ylab("Proportion of days moved") +
+  geom_text(aes(x=sex, y=upper, label=tukey), nudge_y=0.05)
 dev.off()
 mod12
 ```
 
-### **Model 13 - Movement by den sharing (Fig 3C)**
+### By den sharing (fig 3C, model 13)
 
 ```{r}
-hist(logit(codenanimal$MovedPerc))
-mod <- glm(MovedPerc~CodenPA, data=codenanimal)
+hist(logit(codenanimal$moved_perc))
+mod <- glm(moved_perc ~ coden_pa, data=codenanimal)
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-pw <- glht(mod, mcp(CodenPA="Tukey"))  
+pw <- glht(mod, mcp(coden_pa="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(CodenPA="Tukey")))
+summary(glht(mod, mcp(coden_pa="Tukey")))
 
-jpeg(file=paste("Model 13 - Movement ~ Den sharing (Fig 3C).jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Movement by den sharing (fig 3C, model 13).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$CodenPA)
-effects$tukey <- c("a","b")
+effects <- data.frame(effects$coden_pa)
+effects$tukey <- c("a", "b")
 
-mod13 <- ggplot(effects, aes(x=CodenPA, y=fit, group=1))
-mod13 <- mod13+ 
-  geom_errorbar(aes(ymin=lower, ymax=upper), colour="forest green", width=0.1) +
-  geom_point(shape=21,size=3,fill="forest green",colour="forest green") +
-  theme(axis.line=element_line(colour="black"),
-        panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
-        axis.title=element_text(),
-        strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1.04)) +
-  xlab("")+
-  ylab("Proportion of days moved") +
-  geom_text(aes(x=CodenPA, y=upper,label=tukey),nudge_y=0.05)
+mod13 <- ggplot(effects, aes(x=coden_pa, y=fit, group=1)) + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), 
+                colour="forest green", width=0.1) + 
+  geom_point(shape=21, size=3, fill="forest green", colour="forest green") + 
+  theme(axis.line=element_line(colour="black"), 
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(), 
+        panel.background=element_blank(), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
+        axis.title=element_text(), 
+        strip.text.y=element_blank()) + 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1.04)) + 
+  xlab("") + ylab("Proportion of days moved") + 
+  geom_text(aes(x=coden_pa, y=upper, label=tukey), nudge_y=0.05)
+
 dev.off()
-mod13
 ```
-### **Model 14 - Movement by pouch young**
+
+### By pouch young (model 14)
 
 ```{r}
-mod <- glm(MovedPerc~PYPA, data=femanimal)
+mod <- glm(moved_perc ~ pypa, data=femanimal)
 summary(mod)
-anova(mod,test=c("Chisq"))
+anova(mod, test=c("Chisq"))
 
-pw <- glht(mod, mcp(PYPA="Tukey"))  
+pw <- glht(mod, mcp(pypa="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
-summary(glht(mod, mcp(PYPA="Tukey")))
+summary(glht(mod, mcp(pypa="Tukey")))
 
-jpeg(file=paste("Model 14 - Movement ~ Pouch young.jpeg"), width=2500, height=2500, units="px", res=800)
+jpeg(file=paste("Movement by pouch young (model 14).jpeg"), 
+     width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
-effects <- data.frame(effects$PYPA)
-effects$PYPA <- factor(effects$PYPA)
-effects$tukey <- c("a","a")
+effects <- data.frame(effects$pypa)
+effects$pypa <- factor(effects$pypa)
+effects$tukey <- c("a", "a")
 
-mod14 <- ggplot(effects, aes(x=PYPA, y=fit, group=1))
-mod14+ 
+mod14 <- ggplot(effects, aes(x=pypa, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
   geom_point(shape=21,size=3,fill="black",colour="black") +
   theme(axis.line=element_line(colour="black"),
@@ -805,86 +913,124 @@ mod14+
         panel.grid.major=element_blank(),
         panel.grid.minor=element_blank(),
         panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5,color="black"), #y axis tick label
-        axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), #y axis tick label
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
         axis.title=element_text(),
         strip.text.y=element_blank()) +
-  scale_y_continuous(breaks=seq(0,1,0.2),labels=seq(0,1,0.2), limits=c(0,1)) +
-  xlab("Pouch young") +
-  ylab("Probability of survival") +
-  geom_text(aes(x=PYPA, y=upper,label=tukey),nudge_y=0.06) #not working...
+  scale_y_continuous(breaks=seq(0, 1, 0.2), 
+                     labels=seq(0, 1, 0.2), 
+                     limits=c(0, 1)) +
+  xlab("Pouch young") + ylab("Probability of survival") +
+  geom_text(aes(x=pypa, y=upper, label=tukey), nudge_y=0.06) #not working...
+
 dev.off()
 ```
 
-## **2.5 Combine plots**
+## Combine plots
 
 ```{r}
-library(ggpubr)
-Fig2 <- ggarrange(mod1, mod3 + rremove("ylab") + rremove ("y.text") + rremove ("y.ticks"), mod8 + rremove("ylab") + rremove ("y.text") + rremove ("y.ticks"), heights=c(3,3),widths=c(3,3), #y axis titles
+fig2 <- ggarrange(mod1, mod3 + rremove("ylab") + 
+                    rremove ("y.text") + rremove ("y.ticks"), 
+                  mod8 + rremove("ylab") + 
+                    rremove ("y.text") + rremove ("y.ticks"), 
+                  heights=c(3,3),widths=c(3,3), #y axis titles
                 label.x=0.89, label.y=0.99, hjust=-0.5, vjust=1.5, #figure labels
-                #labels=c("2A","2B", "2C"), #figure labels
+                #labels=c("a","b", "c"), #figure labels
                 ncol=3, nrow=1, #align="h", #arrangement of matrix
                 font.label=list(size=10, face="bold", color ="black"))
-ggsave(filename="Fig2.tiff", Fig2, width=190, height=75, units="mm")
-Fig2
 
-Fig3 <- ggarrange(mod10, mod12 + rremove("ylab") + rremove ("y.text") + rremove ("y.ticks"), mod13 + rremove("ylab") + rremove ("y.text") + rremove ("y.ticks"), heights=c(3, 3),widths=c(3,3) , #y axis titles
+print(fig2)
+
+ggsave(filename="fig_2.tiff", fig2, width=190, height=75, units="mm")
+
+
+fig3 <- ggarrange(mod10, mod12 + rremove("ylab") + 
+                    rremove ("y.text") + rremove ("y.ticks"), 
+                  mod13 + rremove("ylab") + 
+                    rremove ("y.text") + rremove ("y.ticks"), 
+                  heights=c(3, 3),widths=c(3,3) , #y axis titles
                 label.x=0.89, label.y=0.99, hjust=-0.5, vjust=1.5, #figure labels
-                #labels=c("3A","3B","3C"), #figure labels
+                #labels=c("a","b","c"), #figure labels
                 ncol=3, nrow=1, #align="h", #arrangement of matrix
                 font.label=list(size=10, face="bold", color ="black"))
-ggsave(filename="Fig3.tiff", Fig3, width=190, height=75, units="mm")
-Fig3
+
+print(fig3)
+
+ggsave(filename="fig_3.tiff", fig3, width=190, height=75, units="mm")
 ```
 
-# **3. Model selection**
+# **Model selection**
 
-## **3.1 Survival by trial and sex**
-
-```{r, results='hide'}
-library(MuMIn)
-```
+## Survival by trial and sex
 
 ```{r}
-animal$Trial <- factor(animal$Trial)
-animal$Sex <- factor(animal$Sex)
-mod1 <- glm(Fate~Trial+Sex, data=animal, family=binomial(link=logit))
+animal <- animal %>% 
+  mutate(trial = factor(trial), 
+         sex = factor(sex))
 
-mod3 <- glm(Fate~Trial, data=animal, family=binomial(link=logit))
-mod4 <- glm(Fate~Sex, data=animal, family=binomial(link=logit))
-AICc(mod1, mod3, mod4)
+mod1 <- glm(fate ~ trial + sex, data=animal, 
+            family=binomial(link=logit))
+
+mod2 <- glm(fate ~ trial, data=animal, 
+            family=binomial(link=logit))
+
+mod3 <- glm(fate ~ sex, data=animal, 
+            family=binomial(link=logit))
+
+AICc(mod1, mod2, mod3)
 summary(mod2)
 ```
 
-## **3.2 Movement by trial and sex**
+## Movement by trial and sex
 
 ```{r}
-animal$Trial <- factor(animal$Trial)
-animal$Sex <- factor(animal$Sex)
-mod1 <- glm(MovedPerc~Trial+Sex, data=animal)
-mod2 <- glm(MovedPerc~Trial*Sex, data=animal)
-mod3 <- glm(MovedPerc~Trial, data=animal)
-mod4 <- glm(MovedPerc~Sex, data=animal)
+mod1 <- glm(moved_perc ~ trial + sex, data=animal)
+mod2 <- glm(moved_perc ~ trial * sex, data=animal)
+mod3 <- glm(moved_perc ~ trial, data=animal)
+mod4 <- glm(moved_perc ~ sex, data=animal)
+
 AICc(mod1, mod2, mod3, mod4)
+summary(mod2)
 ```
 
-## **3.3 Combine plots**
+## Combine plots
 
 ```{r}
-library(ggpubr)
-Fig2 <- ggarrange(mod1, mod3 + rremove("ylab") + rremove ("y.text") + rremove ("y.ticks"), mod8 + rremove("ylab") + rremove ("y.text") + rremove ("y.ticks"), heights=c(3,3),widths=c(3,3), #y axis titles
+fig2 <- ggarrange(mod1, mod3 + rremove("ylab") + 
+                    rremove ("y.text") + rremove ("y.ticks"), 
+                  mod8 + rremove("ylab") + 
+                    rremove ("y.text") + rremove ("y.ticks"), 
+                  heights=c(3, 3),widths=c(3, 3), #y axis titles
                 label.x=0.89, label.y=0.99, hjust=-0.5, vjust=1.5, #figure labels
-                labels=c("2A","2B", "2C"), #figure labels
+                labels=c("a", "b", "c"), #figure labels
                 ncol=3, nrow=1, #align="h", #arrangement of matrix
                 font.label=list(size=10, face="bold", color ="black"))
-ggsave(filename="Fig2.tiff", Fig2, width=190, height=75, units="mm")
-Fig2
 
-Fig3 <- ggarrange(mod10, mod12 + rremove("ylab") + rremove ("y.text") + rremove ("y.ticks"), mod13 + rremove("ylab") + rremove ("y.text") + rremove ("y.ticks"), heights=c(3, 3),widths=c(3,3) , #y axis titles
+# Display plot
+print(fig2)
+
+ggsave(filename="figure 2.tiff", fig_2, 
+       width=190, height=75, units="mm")
+
+fig3 <- ggarrange(mod10, mod12 + rremove("ylab") + 
+                    rremove ("y.text") + rremove ("y.ticks"), 
+                  mod13 + rremove("ylab") + 
+                    rremove ("y.text") + rremove ("y.ticks"), 
+                  heights=c(3, 3), widths=c(3,3) , #y axis titles
                 label.x=0.89, label.y=0.99, hjust=-0.5, vjust=1.5, #figure labels
-                labels=c("3A","3B","3C"), #figure labels
+                labels=c("a", "b", "c"), #figure labels
                 ncol=3, nrow=1, #align="h", #arrangement of matrix
                 font.label=list(size=10, face="bold", color ="black"))
-ggsave(filename="Fig3.tiff", Fig3, width=190, height=75, units="mm")
-Fig3
+# Display plot
+print(fig3)
+
+ggsave(filename="figure 3.tiff", fig3, 
+       width=190, height=75, units="mm")
+```
+
+# **Session info**
+
+```{r}
+# Display version information for R, OS, and packages
+sessionInfo()
 ```
