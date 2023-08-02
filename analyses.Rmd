@@ -1,7 +1,7 @@
 ---
 title: "Adapting reintroduction tactics in successive trials increases the likelihood of establishment for an endangered carnivore in a fenced sanctuary"
 author: "Wilson B A, Evans M J, Batson W G, Banks S C, Gordon I J, Fletcher D B, Wimpenny C, Newport J, Belton E, Rypalski A, Portas T & Manning A D"
-date: "1 August 2023"
+date: "2 August 2023"
 output:
   html_document:
     toc: true
