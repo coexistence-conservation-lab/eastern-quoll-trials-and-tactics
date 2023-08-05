@@ -12,8 +12,8 @@ output:
     theme: cerulean
     highlight: pygments
 editor_options: 
-  chunk_output_type: console
   
+  chunk_output_type: console
 knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'tutorial.html')) })
 ---
 
@@ -65,7 +65,7 @@ mfws <- readOGR(dsn="shapefiles/mfws_fence.shp", verbose=FALSE) %>%
 
 # Plot den locations on MFWS map for each trial
 ggplot() + 
-  geom_path(mfws, mapping=aes(x=long, y=lat, group=group), col="grey15") +
+  geom_path(mfgo, mapping=aes(x=long, y=lat, group=group), col="grey15") +
   geom_jitter(den, mapping=aes(x=easting, y=northing, 
                                col=factor(year_of_acquisition)), alpha=0.2) +
   coord_sf(xlim=c(695750, 699250), ylim=c(6104250, 6107750)) +
