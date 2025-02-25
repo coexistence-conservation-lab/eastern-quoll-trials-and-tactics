@@ -1,18 +1,17 @@
 ---
-title: "Adapting reintroduction tactics in successive trials increases the likelihood of establishment for an endangered carnivore in a fenced sanctuary"
-author: "Wilson B A, Evans M J, Batson W G, Banks S C, Gordon I J, Fletcher D B, Wimpenny C, Newport J, Belton E, Rypalski A, Portas T & Manning A D"
-date: "2 August 2023"
-output:
+title: "Eastern quoll trials and tactics"
+author: "Belinda Wilson & Maldwyn John Evans"
+date: "February 25, 2025"
+output: 
   html_document:
     toc: true
     number_sections: true
-    toc_depth: 3
+    top_depth: 3
     toc_float:
       collapsed: true
     theme: cerulean
     highlight: pygments
-editor_options: 
-  
+editor_options:
   chunk_output_type: console
 knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'tutorial.html')) })
 ---
@@ -21,54 +20,93 @@ knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = e
 knitr::opts_chunk$set(echo=TRUE, eval=FALSE)
 ```
 
-# **Data preparation**
+# **Background**
 
-First, we installed the [pacman Package Management Tool](https://cran.r-project.org/web/packages/pacman/index.html), which allows us to install and load subsequent packages in a condensed and efficient way. 
+Here we describe the analyses we conducted for our article [Wilson *et al.* (2020) Adapting reintroduction tactics in successive trials increases the likelihood of establishment for an endangered carnivore in a fenced sanctuary](https://doi.org/10.1371/journal.pone.0234455).
+
+The original script and datasets for these analyses are also available at [ANU Data Commons](https://datacommons.anu.edu.au/DataCommons/rest/display/anudc:6063).
+
+# **Definitions**
+
+  - **ANU:** The Australian National University
+  - **API:** Application Programming Interface
+  - **CCL:** Coexistence Conservation Lab
+  - **df:** Dataframe
+  - **GLM:** Generalised linear model
+  - **MFGO:** Mulligans Flat–Goorooyarroo Woodland Experiment
+  - **MFWS:** Mulligans Flat Woodland Sanctuary
+  - **mod:** Model
+
+# **Setup**
+
+  1. Install the [pacman Package Management Tool](https://cran.r-project.org/web/packages/pacman/index.html) for efficient installation and loading of subsequent packages.
 
 ```{r, eval=FALSE}
-#install.packages("pacman")
+# Manual package installation, only needs to be run once
+install.packages(pacman)
 ```
 
 ```{r, results='hide', warning=FALSE, message=FALSE}
 # Install and load required packages
-pacman::p_load(adehabitatLT, brglm, boot, effects, ggmap, ggplot2, 
-               ggpubr, janitor, lme4, lsmeans, maptools, multcomp, 
-               MuMIn, plyr, readr, readxl, rgdal, rstudioapi, sp, 
-               tidyverse, viridis)
+pacman::p_load(adehabitatLT, brglm, boot, effects, ggmap, ggplot2, ggpubr, 
+               janitor, lme4, lsmeans, maptools, multcomp, MuMIn, plyr, readr, 
+               readxl, rgdal, rstudioapi, sp, tidyverse, viridis)
 ```
 
-We also set the working directly to where this R markdown is saved using the `rstudioapi` package.
+  2. Assign custom values, global settings, and APIs. 
+  
+If you don't have one, you need to [set up your own Google API key](https://support.google.com/googleapi/answer/6158862?hl=en) and paste it in  .txt file in the `input` folder of this repo. We have set up 
 
 ```{r}
-# Set the working directory to where this markdown is saved
-setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+# Assign custom values
+raw_data <- "input/data.xlsx"
+processed_data <- "output/processed_data.xlsx"
+
+# Assign bounding box for MFWS extent
+xlims <- c(695750, 699250)
+ylims <- c(6104250, 6107750)
+
+# Global setting to deactivate scientific notation
+options(scipen=100, digits=4)
 ```
 
-# **Calculating analysis**
+  3. Set up [beepr](https://cran.r-project.org/web/packages/beepr/readme/README.html) to notify us when lines that take a long time to run (indicated with a "🐢" symbol) have finished. 
 
-```{r, results='hide', warning=FALSE, message=FALSE}
-# Assign raw data filename to an object
-raw_data <- "data.xlsx"
+```{r}
+# Assign beepr sound, options include ping, coin, fanfare, complete,
+# shotgun, mario, treasure, ready, wilhelm, facebook, sword
+sound <- "coin"
+```
 
+# **Data preparation**
+
+```{r}
 # Read in den location data
-den <- read_excel(raw_data, sheet="den locations") %>% 
-  clean_names() %>% 
+dens <- read_excel(raw_data, sheet="den locations") %>% 
+  # Change column names to lower case and separated with underscores
+  clean_names() %>%
+  # Rename columns
   rename(easting=x, northing=y)
 
-# Read in and project MFWS fence shapefile using rgdal
-mfws <- readOGR(dsn="shapefiles/mfws_fence.shp", verbose=FALSE) %>% 
+# Read in and project MFWS fence shapefile
+mfws <- readOGR(dsn="input/mfws_fence.shp", verbose=FALSE) %>% 
   spTransform(CRS("+proj=utm +zone=55 +ellps=WGS84")) %>%
   # Transform shapefile into a dataframe
   fortify(verbose=FALSE) %>%
   mutate(lat=as.numeric(lat + 10000000), 
          long=as.numeric(long))
 
+# Export processed data to a spreadsheet
+write_xlsx(dens, "output/processed data.xlsx")
+```
+
+```{r}
 # Plot den locations on MFWS map for each trial
-ggplot() + 
-  geom_path(mfgo, mapping=aes(x=long, y=lat, group=group), col="grey15") +
+dens_plot <- ggplot() + 
+  geom_path(mfws, mapping=aes(x=long, y=lat, group=group), col="grey15") +
   geom_jitter(den, mapping=aes(x=easting, y=northing, 
                                col=factor(year_of_acquisition)), alpha=0.2) +
-  coord_sf(xlim=c(695750, 699250), ylim=c(6104250, 6107750)) +
+  coord_sf(xlim=xlims, ylim=ylims) +
   theme(panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
         panel.border = element_blank(),
@@ -82,15 +120,27 @@ ggplot() +
   facet_wrap(~factor(year_of_acquisition), ncol=3) +
   scale_colour_manual(values = viridis(3, begin=0.9, end=0.1), name="Fence") +
   xlab("") + ylab("") + labs(col="Trial")
+
+# Display the plot
+print(dens_plot)
 ```
+
+```{r, eval=FALSE, include=FALSE}
+# Export plot as jpeg
+ggsave(plot=dens_plot, "output/dens plot.jpg", 
+       width=7, height=5, dpi=300)
+```
+
+# **Analyses**
 
 ## Cluster dens
 
   1. Create clusters for dens within 10 m of one another
 
 ```{r}
-den <- den %>% 
-  # Remove some founders
+# Read in processed data
+den <- read_excel(processed_data, sheet="dens") %>% 
+  # Remove excluded founders
   subset(bank_id!="EQ15" & bank_id!="EQ16" & bank_id!="EQ17" & 
            # Remove duplicated rows
            den_id!="119" & den_id!="1682" & 
@@ -174,7 +224,7 @@ move <- as.ltraj(xy=eq[,c("mean_x", "mean_y")], date=pdate, id=idsp)
 # Plot movements and save to jpeg file
 jpeg(file="EQ01_plot.jpeg", width=5500, height=5000, units="px", res=800)
   # Plot movements
-  plot(move, xlim=c(695750, 699250), ylim=c(6104250, 6107750), 
+  plot(move, xlim=xlims, ylim=ylims, 
        xlab="Easting", ylab="Northing", main="EQ01")
   plot(mfws, add=TRUE)
 dev.off()
@@ -185,6 +235,7 @@ sum.table <- cbind(eq, dist_eq)
 ```
 
 ```{r}
+# Extract distances
 dist_eq <- move[[1]]
 dist_eq$bank_id <- "EQ01"
 sum.table <- cbind(eq, dist_eq)
@@ -211,7 +262,7 @@ for(i in eq_ids){
   
   jpeg(file=paste(i, "plot.jpeg", sep="_"), 
        width=5500, height=5000, units="px", res=800)
-  plot(move, xlim=c(695750, 699250), ylim=c(6104250, 6107750), 
+  plot(move, xlim=xlims, ylim=ylims, 
        xlab="Easting", ylab="Northing", main=paste(i))
   plot(mfws, add=T)
   dev.off()
@@ -226,6 +277,7 @@ for(i in eq_ids){
 ## Distance from release site
 
 ```{r}
+# Calculate distances from release site
 den$dfr <- sqrt((den$release_x-den$mean_x)^2 + 
                   (den$release_y-den$mean_y)^2)
 ```
@@ -278,7 +330,10 @@ effects <- allEffects(mod)
 effects <- data.frame(effects$trial)
 effects$trial <- factor(effects$trial)
 effects$tukey <- c("a", "b", "b")
+```
 
+```{r}
+# Plot model
 mod1 <- ggplot(effects, aes(x=trial, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), 
                 colour="orange", width=0.1) +
@@ -296,7 +351,9 @@ mod1 <- ggplot(effects, aes(x=trial, y=fit, group=1)) +
   xlab("Trial") + ylab("Probability of survival") +
   geom_text(aes(x=trial, y=upper, label=tukey), nudge_y=0.05)
 dev.off()
-mod1
+
+# Display plot
+print(mod1)
 ```
 
 ### By origin (model 2)
@@ -315,7 +372,9 @@ anova(mod, test=c("Chisq"))
 pw <- glht(mod, mcp(origin="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(origin="Tukey")))
+```
 
+```{r}
 jpeg(file=paste("Survival by origin (model 2).jpeg"), 
      width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
@@ -360,7 +419,9 @@ anova(mod, test=c("Chisq"))
 pw <- glht(mod, mcp(sex="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(sex="Tukey")))
+```
 
+```{r}
 jpeg(file=paste("By sex (fig 2B, model 3).jpeg"), 
      width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
@@ -401,7 +462,9 @@ anova(mod, test=c("Chisq"))
 pw <- glht(mod, mcp(coden_pa="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(coden_pa="Tukey")))
+```
 
+```{r}
 jpeg(file=paste("Survival by den sharing (model 4).jpeg"), 
      width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
@@ -438,7 +501,9 @@ anova(mod, test=c("Chisq"))
 pw <- glht(mod, mcp(pypa="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(pypa="Tukey")))
+```
 
+```{r}
 jpeg(file=paste("Survival by pouch young (model 5).jpeg"), 
      width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
@@ -479,8 +544,9 @@ anova(mod, test=c("Chisq"))
 pw <- glht(mod, mcp(trial="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(trial="Tukey")))
+```
 
-#this plot is not right
+```{r}
 jpeg(file=paste("Den sharing by trial (model 6).jpeg"), 
      width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
@@ -515,8 +581,9 @@ anova(mod, test=c("Chisq"))
 pw <- glht(mod, mcp(sex="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(sex="Tukey")))
+```
 
-#this plot is not right
+```{r}
 jpeg(file=paste("Den sharing by sex (model 7).jpeg"), 
      width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
@@ -550,8 +617,9 @@ anova(mod,test=c("Chisq"))
 pw <- glht(mod, mcp(origin="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(origin="Tukey")))
+```
 
-#this plot is not right
+```{r}
 jpeg(file=paste("Den sharing by origin (model 7).jpeg"), 
      width=2500, height=2500, units="px", res=800)
 effects <- allEffects(mod)
@@ -595,7 +663,9 @@ plotdat <- cbind(new.dat,predicted)
 plotdat$fit_r <- inv.logit(plotdat$fit) #creating the predicted value by transforming from the link scale to the response scale
 plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) #creating rough 95%CIs before transforming to the response scale
 plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit) #there are more complicated and robust ways such as profiling and permutations...
+```
 
+```{r}
 jpeg(file=paste("Survival by movement (fig 2C, model 8).jpeg"), 
      width=2500, height=2500, units="px", res=800)
 
@@ -646,7 +716,9 @@ plotdat <- cbind(new.dat,predicted)
 plotdat$fit_r <- inv.logit(plotdat$fit) #creating the predicted value by transforming from the link scale to the response scale
 plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) # creating rough 95%CIs before transforming to the response scale
 plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit)
+```
 
+```{r}
 jpeg(file=paste("Survival by distance (model 9).jpeg"), 
      width=2500, height=2500, units="px", res=800)
 
@@ -675,8 +747,9 @@ dev.off()
 **Excluding zeros**
 
 ```{r}
-subdata <- animal[!is.na(animal$distance_mean_zero),] #changed it to a subdata
-subdata$fate <- as.numeric(as.character(subdata$fate)) # for some reason it was classified as a character vector
+# Changed to a subdata
+subdata <- animal[!is.na(animal$distance_mean_zero),] 
+subdata$fate <- as.numeric(as.character(subdata$fate)) 
 
 mod <- glm(fate ~ distance_mean_zero, data=subdata, 
            family=binomial(link=logit)) #model including zeros
@@ -688,14 +761,23 @@ mod <- glm(fate ~ distance_mean_zero, data=subdata,
 summary(mod)
 anova(mod, test=c("Chisq"))
 
-new.dat <- data.frame(distance_mean_zero=seq(180, 1050, length.out=100)) #creates a vector for the prediction function to predict for
-predicted <- predict(mod, newdata=new.dat, se.fit=TRUE, type="link") #predicting on link scale
+# Create a vector for the prediction function to predict for
+new.dat <- data.frame(distance_mean_zero=seq(180, 1050, length.out=100))
+
+# Predict on link scale
+predicted <- predict(mod, newdata=new.dat, se.fit=TRUE, type="link") 
 predicted <- data.frame(predicted)
 plotdat <- cbind(new.dat,predicted)
-plotdat$fit_r <- inv.logit(plotdat$fit) #creating the predicted value by transforming from the link scale to the response scale
-plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) # creating rough 95%CIs before transforming to the response scale
-plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit)
 
+# Create the predicted value by transforming from the link scale to the response scale
+plotdat$fit_r <- inv.logit(plotdat$fit) 
+
+# Create 95%CIs before transforming to the response scale
+plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) 
+plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit)
+```
+
+```{r}
 jpeg(file=paste("Survival by distance (nozeros, model 9).jpeg"), 
      width=2500, height=2500, units="px", res=800)
 
@@ -723,6 +805,7 @@ mod9 <- ggplot(plotdat, aes(x=distance_mean_zero, y=fit_r, group=1)) +
 dev.off()
 ```
 
+
 ### By trial (fig 3A, model 10)
 
 ```{r}
@@ -735,9 +818,12 @@ anova(mod, test=c("Chisq"))
 pw <- glht(mod, mcp(trial="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(trial="Tukey")))
+```
 
+```{r}
 jpeg(file=paste("Movement by trial (fig 3A, model 10).jpeg"), 
      width=2500, height=2500, units="px", res=800)
+
 effects <- allEffects(mod)
 effects <- data.frame(effects$trial)
 effects$trial <- factor(effects$trial)
@@ -779,9 +865,12 @@ anova(mod, test=c("Chisq"))
 pw <- glht(mod, mcp(origin="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(origin="Tukey")))
+```
 
+```{r}
 jpeg(file=paste("Movement by origin (model 11).jpeg"), 
      width=2500, height=2500, units="px", res=800)
+
 effects <- allEffects(mod)
 effects <- data.frame(effects$origin)
 effects$origin <- factor(effects$origin)
@@ -827,7 +916,9 @@ effects <- allEffects(mod)
 effects <- data.frame(effects$sex)
 effects$sex <- factor(effects$sex)
 effects$tukey <- c("a", "b")
+```
 
+```{r}
 mod12 <- ggplot(effects, aes(x=sex, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), colour="brown", width=0.1) + 
   geom_point(shape=21,size=3, fill="brown", colour="brown") + 
@@ -859,9 +950,12 @@ anova(mod, test=c("Chisq"))
 pw <- glht(mod, mcp(coden_pa="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(coden_pa="Tukey")))
+```
 
+```{r}
 jpeg(file=paste("Movement by den sharing (fig 3C, model 13).jpeg"), 
      width=2500, height=2500, units="px", res=800)
+
 effects <- allEffects(mod)
 effects <- data.frame(effects$coden_pa)
 effects$tukey <- c("a", "b")
@@ -897,9 +991,12 @@ anova(mod, test=c("Chisq"))
 pw <- glht(mod, mcp(pypa="Tukey"))  
 ph <- cld(pw, alpha=0.050, Letters=letters, adjust="tukey")
 summary(glht(mod, mcp(pypa="Tukey")))
+```
 
+```{r}
 jpeg(file=paste("Movement by pouch young (model 14).jpeg"), 
      width=2500, height=2500, units="px", res=800)
+
 effects <- allEffects(mod)
 effects <- data.frame(effects$pypa)
 effects$pypa <- factor(effects$pypa)
@@ -941,9 +1038,12 @@ fig2 <- ggarrange(mod1, mod3 + rremove("ylab") +
 
 print(fig2)
 
-ggsave(filename="fig_2.tiff", fig2, width=190, height=75, units="mm")
+# Export the plot as a tiff file
+ggsave(filename="fig_2.tiff", fig2, 
+       width=190, height=75, units="mm")
+```
 
-
+```{r}
 fig3 <- ggarrange(mod10, mod12 + rremove("ylab") + 
                     rremove ("y.text") + rremove ("y.ticks"), 
                   mod13 + rremove("ylab") + 
@@ -956,7 +1056,9 @@ fig3 <- ggarrange(mod10, mod12 + rremove("ylab") +
 
 print(fig3)
 
-ggsave(filename="fig_3.tiff", fig3, width=190, height=75, units="mm")
+# Export the plot as a tiff file
+ggsave(filename="fig_3.tiff", fig3, 
+       width=190, height=75, units="mm")
 ```
 
 # **Model selection**
@@ -965,8 +1067,7 @@ ggsave(filename="fig_3.tiff", fig3, width=190, height=75, units="mm")
 
 ```{r}
 animal <- animal %>% 
-  mutate(trial = factor(trial), 
-         sex = factor(sex))
+  mutate(trial=factor(trial), sex=factor(sex))
 
 mod1 <- glm(fate ~ trial + sex, data=animal, 
             family=binomial(link=logit))
@@ -984,6 +1085,7 @@ summary(mod2)
 ## Movement by trial and sex
 
 ```{r}
+# Run models
 mod1 <- glm(moved_perc ~ trial + sex, data=animal)
 mod2 <- glm(moved_perc ~ trial * sex, data=animal)
 mod3 <- glm(moved_perc ~ trial, data=animal)
@@ -996,6 +1098,7 @@ summary(mod2)
 ## Combine plots
 
 ```{r}
+# Combine plots
 fig2 <- ggarrange(mod1, mod3 + rremove("ylab") + 
                     rremove ("y.text") + rremove ("y.ticks"), 
                   mod8 + rremove("ylab") + 
@@ -1006,12 +1109,16 @@ fig2 <- ggarrange(mod1, mod3 + rremove("ylab") +
                 ncol=3, nrow=1, #align="h", #arrangement of matrix
                 font.label=list(size=10, face="bold", color ="black"))
 
-# Display plot
+# Display the plot
 print(fig2)
 
+# Export the plot as a tiff file
 ggsave(filename="figure 2.tiff", fig_2, 
        width=190, height=75, units="mm")
+```
 
+```{r}
+# Combine plots
 fig3 <- ggarrange(mod10, mod12 + rremove("ylab") + 
                     rremove ("y.text") + rremove ("y.ticks"), 
                   mod13 + rremove("ylab") + 
@@ -1021,16 +1128,17 @@ fig3 <- ggarrange(mod10, mod12 + rremove("ylab") +
                 labels=c("a", "b", "c"), #figure labels
                 ncol=3, nrow=1, #align="h", #arrangement of matrix
                 font.label=list(size=10, face="bold", color ="black"))
-# Display plot
+# Display the plot
 print(fig3)
 
+# Export the plot as a tiff file
 ggsave(filename="figure 3.tiff", fig3, 
        width=190, height=75, units="mm")
 ```
 
-# **Session info**
+# **Session information**
 
-```{r}
-# Display version information for R, OS, and packages
+```{r, eval=TRUE}
+# Display session information
 sessionInfo()
 ```
