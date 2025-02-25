@@ -1,6 +1,6 @@
 ---
 title: "Eastern quoll trials and tactics"
-author: "Belinda Wilson & Maldwyn John Evans"
+author: "Belinda Wilson and Maldwyn John Evans"
 date: "February 25, 2025"
 output: 
   html_document:
@@ -107,18 +107,18 @@ dens_plot <- ggplot() +
   geom_jitter(den, mapping=aes(x=easting, y=northing, 
                                col=factor(year_of_acquisition)), alpha=0.2) +
   coord_sf(xlim=xlims, ylim=ylims) +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        panel.border = element_blank(),
-        panel.background = element_rect(fill="white"),
-        axis.text.x = element_blank(), 
-        axis.text.y = element_blank(), 
-        axis.ticks.x = element_blank(),
-        axis.ticks.y = element_blank(),
-        legend.key = element_blank(), 
-        strip.background = element_blank()) +
+  theme(axis.text.x=element_blank(), 
+        axis.text.y=element_blank(), 
+        axis.ticks.x=element_blank(),
+        axis.ticks.y=element_blank(),
+        legend.key=element_blank(), 
+        panel.background=element_rect(fill="white"),
+        panel.border=element_blank(),
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(),
+        strip.background=element_blank()) +
   facet_wrap(~factor(year_of_acquisition), ncol=3) +
-  scale_colour_manual(values = viridis(3, begin=0.9, end=0.1), name="Fence") +
+  scale_colour_manual(values=viridis(3, begin=0.9, end=0.1), name="Fence") +
   xlab("") + ylab("") + labs(col="Trial")
 
 # Display the plot
@@ -222,7 +222,8 @@ coordinates(merge) <- sppt
 move <- as.ltraj(xy=eq[,c("mean_x", "mean_y")], date=pdate, id=idsp) 
 
 # Plot movements and save to jpeg file
-jpeg(file="EQ01_plot.jpeg", width=5500, height=5000, units="px", res=800)
+jpeg(file="EQ01_plot.jpeg", 
+     width=5500, height=5000, units="px", res=800)
   # Plot movements
   plot(move, xlim=xlims, ylim=ylims, 
        xlab="Easting", ylab="Northing", main="EQ01")
@@ -248,17 +249,24 @@ eq_ids <- eq_ids[c(2:length(eq_ids))]
 
 for(i in eq_ids){
   eq <- subset(den, bank_id==i)
-  eq$bank_id <- factor(eq$bank_id) #converts to factor
-  pdate <- as.POSIXct(strptime(as.character(eq$posix_date),"%Y.%m.%d")) #convert date to a format POSIX needs
+  eq$bank_id <- factor(eq$bank_id) 
+  # Convert date to a format POSIX needs
+  pdate <- as.POSIXct(strptime(as.character(eq$posix_date),"%Y.%m.%d")) 
   data_xy=eq[c("mean_x", "mean_y")]
-  xysp <- SpatialPoints(data_xy) #creates a class Spatial Points for all locations
+  # Create a class Spatial Points for all locations
+  xysp <- SpatialPoints(data_xy) 
   proj4string(xysp) <- CRS("+proj=utm +zone=55 +ellps=WGS84")
   
-  sppt <- data.frame(xysp) #creates a Spatial Data Frame from sppt
-  idsp <- data.frame(eq$bank_id) #creates a spatial data frame of ID
-  merge <- data.frame(idsp) #merges ID and Date into the same spatial data frame
-  coordinates(merge) <- sppt #adds ID and Date data frame with locations data frame
-  move <- as.ltraj(xy=eq[,c("mean_x","mean_y")], date=pdate, id=idsp) #creates an object of class ltraj to store movements
+  # Create a Spatial Data Frame from sppt
+  sppt <- data.frame(xysp) 
+  # Create a spatial data frame of ID
+  idsp <- data.frame(eq$bank_id) 
+  # Merge ID and Date into the same spatial data frame
+  merge <- data.frame(idsp) 
+  # Add ID and Date data frame with locations data frame
+  coordinates(merge) <- sppt 
+  # Create an object of class ltraj to store movements
+  move <- as.ltraj(xy=eq[,c("mean_x","mean_y")], date=pdate, id=idsp) 
   
   jpeg(file=paste(i, "plot.jpeg", sep="_"), 
        width=5500, height=5000, units="px", res=800)
@@ -338,18 +346,22 @@ mod1 <- ggplot(effects, aes(x=trial, y=fit, group=1)) +
   geom_errorbar(aes(ymin=lower, ymax=upper), 
                 colour="orange", width=0.1) +
   geom_point(shape=21, size=3, 
-             fill="orange", colour="orange") +
-  theme(axis.line=element_line(colour="black"), legend.position="none",
-        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        panel.background=element_blank(), axis.title=element_text(),
+             fill="orange", colour="orange") + 
+  geom_text(aes(x=trial, y=upper, label=tukey), nudge_y=0.05) + 
+  theme(axis.line=element_line(colour="black"), 
         axis.text.y=element_text(angle=0, vjust=0.5,color="black"),
         axis.text.x=element_text(angle=0, vjust=0.5,color="black"),
+        axis.title=element_text(),
+        legend.position="none",
+        panel.background=element_blank(), 
+        panel.grid.major=element_blank(), 
+        panel.grid.minor=element_blank(),
         strip.text.y=element_blank()) +
   scale_y_continuous(breaks=seq(0, 1, 0.2), 
                      labels=seq(0, 1, 0.2), 
                      limits=c(0, 1.04)) +
-  xlab("Trial") + ylab("Probability of survival") +
-  geom_text(aes(x=trial, y=upper, label=tukey), nudge_y=0.05)
+  xlab("Trial") + ylab("Probability of survival")
+
 dev.off()
 
 # Display plot
@@ -384,20 +396,21 @@ effects$tukey <- "a"
 
 mod2 <- ggplot(effects, aes(x=origin, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
-  geom_point(shape=21, size=3, fill="black", colour="black") +
+  geom_point(shape=21, size=3, fill="black", colour="black") + 
+  geom_text(aes(x=origin, y=upper, label=tukey), nudge_y=0.06) + 
   theme(axis.line=element_line(colour="black"),
-        panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
         axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
         axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
         axis.title=element_text(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        panel.background=element_blank(),
         strip.text.y=element_blank()) +
   scale_y_continuous(breaks=seq(0, 1, 0.2), 
                      labels=seq(0, 1, 0.2), 
                      limits=c(0, 1.1)) + 
-  xlab("Origin") + ylab("Probability of survival") +
-  geom_text(aes(x=origin, y=upper, label=tukey), nudge_y=0.06)
+  xlab("Origin") + ylab("Probability of survival")
+
 dev.off()
 ```
 
@@ -432,23 +445,25 @@ effects$tukey <- c("a", "b")
 mod3 <- ggplot(effects, aes(x=sex, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), color="brown", width=0.1) +
   geom_point(shape=21,size=3, fill="brown", color="brown") +
-  theme(axis.line=element_line(color="black"), 
+  geom_text(aes(x=sex, y=upper, label=tukey), nudge_y=0.05) +
+  theme(axis.line=element_line(color="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(),
         legend.position="none", 
         panel.grid.major=element_blank(),
         panel.grid.minor=element_blank(),
         panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.title=element_text(),
         strip.text.y=element_blank()) +
   scale_y_continuous(breaks=seq(0, 1, 0.2), 
                      labels=seq(0, 1, 0.2), 
                      limits=c(0, 1.04)) + 
-  xlab("Sex") + ylab("Probability of survival") +
-  geom_text(aes(x=sex, y=upper, label=tukey), nudge_y=0.05)
+  xlab("Sex") + ylab("Probability of survival")
 
 dev.off()
-mod3
+
+# Display the plot
+print(mod3)
 ```
 
 ### By den sharing (model 4)
@@ -474,19 +489,20 @@ effects$tukey <- c("a", "a")
 mod4 <- ggplot(effects, aes(x=coden_pa, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
   geom_point(shape=21, size=3, fill="black", colour="black") + 
+  geom_text(aes(x=coden_pa, y=upper, label=tukey), nudge_y=0.06) + 
   theme(axis.line=element_line(colour="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.title=element_text(),
+        panel.background=element_blank(),
         panel.grid.major=element_blank(),
         panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
-        axis.title=element_text(),
         strip.text.y=element_blank()) +
   scale_y_continuous(breaks=seq(0, 1, 0.2), 
                      labels=seq(0, 1, 0.2), 
                      limits=c(0, 1)) +
-  xlab("") + ylab("Probability of survival") +
-  geom_text(aes(x=coden_pa, y=upper, label=tukey), nudge_y=0.06)
+  xlab("") + ylab("Probability of survival")
+  
 dev.off()
 ```
 
@@ -513,20 +529,20 @@ effects$tukey <- c("a", "a")
 
 mod5 <- ggplot(effects, aes(x=pypa, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
-  geom_point(shape=21, size=3, fill="black", colour="black") +
+  geom_point(shape=21, size=3, fill="black", colour="black") + 
+  geom_text(aes(x=pypa, y=upper, label=tukey), nudge_y=0.06) +
   theme(axis.line=element_line(colour="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.title=element_text(),
+        panel.background=element_blank(),
         panel.grid.major=element_blank(),
         panel.grid.minor=element_blank(),
-        panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
-        axis.title=element_text(),
         strip.text.y=element_blank()) +
   scale_y_continuous(breaks=seq(0, 1, 0.2), 
                      labels=seq(0, 1, 0.2), 
                      limits=c(0, 1)) +
-  xlab("Pouch young") + ylab("Probability of survival") +
-  geom_text(aes(x=pypa, y=upper, label=tukey), nudge_y=0.06) #not working...
+  xlab("Pouch young") + ylab("Probability of survival")
 
 dev.off()
 ```
@@ -557,16 +573,16 @@ effects$tukey <- c("a", "a", "a")
 mod6 <- ggplot(effects, aes(x=trial, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
   geom_point(shape=21, size=3, fill="black", colour="black") +
+  geom_text(aes(x=trial, y=upper, label=tukey), nudge_y=3) + 
   theme(axis.line=element_line(colour="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.title=element_text(), 
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
         panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
-        axis.title=element_text(), 
         strip.text.y=element_blank()) + 
-  xlab("Trial") + ylab("Percentage of fixes \n found den sharing (%)") +
-  geom_text(aes(x=trial, y=upper, label=tukey), nudge_y=3) #letters not in right position...
+  xlab("Trial") + ylab("Percentage of fixes \n found den sharing (%)")
 
 dev.off()
 ```
@@ -594,16 +610,17 @@ effects$tukey <- "a"
 mod7 <- ggplot(effects, aes(x=sex, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
   geom_point(shape=21, size=3, fill="black", colour="black") +
+  geom_text(aes(x=sex, y=upper, label=tukey), nudge_y=3) +
   theme(axis.line=element_line(colour="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.title=element_text(),
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
         panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
-        axis.title=element_text(),
         strip.text.y=element_blank()) +
-  xlab("Sex") + ylab("Percentage of fixes \n found den sharing (%)") +
-  geom_text(aes(x=sex, y=upper, label=tukey), nudge_y=3)
+  xlab("Sex") + ylab("Percentage of fixes \n found den sharing (%)")
+
 dev.off()
 ```
 
@@ -630,16 +647,16 @@ effects$tukey <- "a"
 mod7 <- ggplot(effects, aes(x=origin, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) + 
   geom_point(shape=21, size=3, fill="black", colour="black") + 
+  geom_text(aes(x=origin, y=upper, label=tukey), nudge_y=3) +
   theme(axis.line=element_line(colour="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
+        panel.background=element_blank(), 
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
-        panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.title=element_text(), 
         strip.text.y=element_blank()) + 
-  xlab("Origin") + ylab("Percentage of fixes \n found den sharing (%)") + 
-  geom_text(aes(x=origin, y=upper, label=tukey), nudge_y=3)
+  xlab("Origin") + ylab("Percentage of fixes \n found den sharing (%)")
 
 dev.off()
 ```
@@ -649,20 +666,28 @@ dev.off()
 ### Survival by movement (fig 2C, model 8)
 
 ```{r}
-subdata <- animal[!is.na(animal$moved_perc),] #changed it to a subdata
-subdata$fate <- as.numeric(as.character(subdata$fate)) # for some reason it was classified as a character vector
+# Change to a subdata
+subdata <- animal[!is.na(animal$moved_perc),] 
+subdata$fate <- as.numeric(as.character(subdata$fate))
 mod <- glm(fate ~ moved_perc, data=subdata, 
            family=binomial(link=logit)) #should be a binomial model
 summary(mod)
 anova(mod, test=c("Chisq"))
 
-new.dat <- data.frame(moved_perc=seq(0.12, 0.857, length.out=100)) #creates a vector for the prediction function to predict for
-predicted <- predict(mod, newdata=new.dat, se.fit=TRUE, type="link") #predicting on link scale
+# Create a vector for the prediction function to predict for
+new.dat <- data.frame(moved_perc=seq(0.12, 0.857, length.out=100)) 
+
+# Predict on link scale
+predicted <- predict(mod, newdata=new.dat, se.fit=TRUE, type="link") 
 predicted <- data.frame(predicted)
 plotdat <- cbind(new.dat,predicted)
-plotdat$fit_r <- inv.logit(plotdat$fit) #creating the predicted value by transforming from the link scale to the response scale
-plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) #creating rough 95%CIs before transforming to the response scale
-plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit) #there are more complicated and robust ways such as profiling and permutations...
+
+# Create predicted value by transforming from the link scale to the response scale
+plotdat$fit_r <- inv.logit(plotdat$fit) 
+
+# Create 95% CIs before transforming to the response scale
+plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) 
+plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit)
 ```
 
 ```{r}
@@ -678,43 +703,51 @@ mod8 <- ggplot(plotdat, aes(x=moved_perc, ylim(0,1), y=fit_r, group=1)) +
   geom_line(aes(y= lower_r), linetype=3, 
             colour="forest green", lwd=0.5) +
   theme(axis.line=element_line(colour="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
         legend.position="none",
+        panel.background=element_blank(), 
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
-        panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.title=element_text(), 
         strip.text.y=element_blank()) + 
-  scale_x_continuous(breaks=seq(0, 1, 0.2), 
-                     labels=seq(0, 1, 0.2), 
+  scale_x_continuous(breaks=seq(0, 1, 0.2), labels=seq(0, 1, 0.2), 
                      limits=c(0, 1.04)) + 
-  scale_y_continuous(breaks=seq(0, 1, 0.2), 
-                     labels=seq(0, 1, 0.2), 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), labels=seq(0, 1, 0.2), 
                      limits=c(0, 1.04)) + 
   xlab("Proportion of days moved") + ylab("Probability of survival")
 
 dev.off()
-mod8
+
+# Display the plot
+print(mod8)
 ```
 
 ### Survival by distance (model 9)
 
 ```{r}
-subdata <- animal[!is.na(animal$distance_mean),] #changed it to a subdata
-subdata$fate <- as.numeric(as.character(subdata$fate)) # for some reason it was classified as a character vector
+# Change to a subdata
+subdata <- animal[!is.na(animal$distance_mean),] 
+subdata$fate <- as.numeric(as.character(subdata$fate))
 
 mod <- glm(fate ~ distance_mean, data=subdata, 
            family=binomial(link=logit)) #model including zeros
 summary(mod)
 anova(mod, test=c("Chisq"))
 
-new.dat <- data.frame(distance_mean=seq(180, 1050, length.out=100)) #creates a vector for the prediction function to predict for
-predicted <- predict(mod, newdata=new.dat, se.fit=TRUE, type="link") #predicting on link scale
+# Create a vector for the prediction function to predict for
+new.dat <- data.frame(distance_mean=seq(180, 1050, length.out=100)) 
+
+# Predict on link scale
+predicted <- predict(mod, newdata=new.dat, se.fit=TRUE, type="link") 
 predicted <- data.frame(predicted)
 plotdat <- cbind(new.dat,predicted)
-plotdat$fit_r <- inv.logit(plotdat$fit) #creating the predicted value by transforming from the link scale to the response scale
-plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) # creating rough 95%CIs before transforming to the response scale
+
+# Create predicted value by transforming from the link scale to the response scale
+plotdat$fit_r <- inv.logit(plotdat$fit) 
+
+# Calculate 95% CIs before transforming to the response scale
+plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) 
 plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit)
 ```
 
@@ -729,15 +762,14 @@ mod9 <- ggplot(plotdat, aes(x=distance_mean, y=fit_r, group=1)) +
   geom_line(aes(y= upper_r ),linetype=3, colour="grey40", lwd=0.5) + 
   geom_line(aes(y= lower_r),linetype=3, colour="grey40", lwd=0.5) + 
   theme(axis.line=element_line(colour="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.title=element_text(),
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
         panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
-        axis.title=element_text(), 
         strip.text.y=element_blank()) + 
-  scale_y_continuous(breaks=seq(0, 1, 0.2), 
-                     labels=seq(0, 1, 0.2), 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), labels=seq(0, 1, 0.2), 
                      limits=c(0, 1)) + 
   xlab("Distance moved between dens (m)") + ylab("Probability of survival")
 
@@ -747,7 +779,7 @@ dev.off()
 **Excluding zeros**
 
 ```{r}
-# Changed to a subdata
+# Changed to subdata
 subdata <- animal[!is.na(animal$distance_mean_zero),] 
 subdata$fate <- as.numeric(as.character(subdata$fate)) 
 
@@ -769,10 +801,10 @@ predicted <- predict(mod, newdata=new.dat, se.fit=TRUE, type="link")
 predicted <- data.frame(predicted)
 plotdat <- cbind(new.dat,predicted)
 
-# Create the predicted value by transforming from the link scale to the response scale
+# Create predicted value by transforming from the link scale to the response scale
 plotdat$fit_r <- inv.logit(plotdat$fit) 
 
-# Create 95%CIs before transforming to the response scale
+# Create 95% CIs before transforming to the response scale
 plotdat$lower_r <- inv.logit(plotdat$fit-1.96*plotdat$se.fit) 
 plotdat$upper_r <- inv.logit(plotdat$fit+1.96*plotdat$se.fit)
 ```
@@ -790,15 +822,14 @@ mod9 <- ggplot(plotdat, aes(x=distance_mean_zero, y=fit_r, group=1)) +
   geom_line(aes(y= lower_r), linetype=3, 
             colour="grey40", lwd=0.5) + 
   theme(axis.line=element_line(colour="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
         panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.title=element_text(), 
         strip.text.y=element_blank()) + 
-  scale_y_continuous(breaks=seq(0, 1, 0.2), 
-                     labels=seq(0, 1, 0.2), 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), labels=seq(0, 1, 0.2), 
                      limits=c(0, 1)) + 
   xlab("Distance moved between dens (m)") + ylab("Probability of survival")
 
@@ -830,25 +861,25 @@ effects$trial <- factor(effects$trial)
 effects$tukey <- c("a", "b", "b")
 
 mod10 <- ggplot(effects, aes(x=trial, y=fit, group=1)) + 
-  geom_errorbar(aes(ymin=lower, ymax=upper), 
-                colour="orange", width=0.1) + 
-  geom_point(shape=21, size=3, 
-             fill="orange", colour="orange") + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), colour="orange", width=0.1) + 
+  geom_point(shape=21, size=3, fill="orange", colour="orange") + 
+  geom_text(aes(x=trial, y=upper, label=tukey), nudge_y=0.05) +
   theme(axis.line=element_line(colour="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
         panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.title=element_text(), 
         strip.text.y=element_blank()) + 
-  scale_y_continuous(breaks=seq(0, 1, 0.2), 
-                     labels=seq(0, 1, 0.2), 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), labels=seq(0, 1, 0.2), 
                      limits=c(0, 1.04)) + 
-  xlab("Trial") + ylab("Proportion of days moved") +
-  geom_text(aes(x=trial, y=upper, label=tukey), nudge_y=0.05) 
+  xlab("Trial") + ylab("Proportion of days moved")
+
 dev.off()
-mod10
+
+# Display the plot
+print(mod10)
 ```
 
 ### By origin (model 11)
@@ -879,19 +910,19 @@ effects$tukey <- "a"
 mod11 <- ggplot(effects, aes(x=origin, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) + 
   geom_point(shape=21, size=3, fill="black", colour="black") + 
+  geom_text(aes(x=origin, y=upper, label=tukey), nudge_y=0.06) + 
   theme(axis.line=element_line(colour="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
         panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.title=element_text(), 
         strip.text.y=element_blank()) + 
-  scale_y_continuous(breaks=seq(0, 1, 0.2), 
-                     labels=seq(0, 1, 0.2), 
+  scale_y_continuous(breaks=seq(0, 1, 0.2), labels=seq(0, 1, 0.2), 
                      limits=c(0, 1)) + 
-  xlab("Origin") + ylab("Proportion of days moved") + 
-  geom_text(aes(x=origin, y=upper, label=tukey), nudge_y=0.06)
+  xlab("Origin") + ylab("Proportion of days moved")
+
 dev.off()
 ```
 
@@ -922,21 +953,24 @@ effects$tukey <- c("a", "b")
 mod12 <- ggplot(effects, aes(x=sex, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), colour="brown", width=0.1) + 
   geom_point(shape=21,size=3, fill="brown", colour="brown") + 
+  geom_text(aes(x=sex, y=upper, label=tukey), nudge_y=0.05) + 
   theme(axis.line=element_line(colour="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(), 
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
         panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"), 
-        axis.title=element_text(), 
         strip.text.y=element_blank()) + 
   scale_y_continuous(breaks=seq(0, 1, 0.2), 
                      labels=seq(0, 1, 0.2), 
                      limits=c(0, 1.04)) + 
-  xlab("Sex") + ylab("Proportion of days moved") +
-  geom_text(aes(x=sex, y=upper, label=tukey), nudge_y=0.05)
+  xlab("Sex") + ylab("Proportion of days moved")
+
 dev.off()
-mod12
+
+# Display the plot
+print(mod12)
 ```
 
 ### By den sharing (fig 3C, model 13)
@@ -964,19 +998,19 @@ mod13 <- ggplot(effects, aes(x=coden_pa, y=fit, group=1)) +
   geom_errorbar(aes(ymin=lower, ymax=upper), 
                 colour="forest green", width=0.1) + 
   geom_point(shape=21, size=3, fill="forest green", colour="forest green") + 
+  geom_text(aes(x=coden_pa, y=upper, label=tukey), nudge_y=0.05) + 
   theme(axis.line=element_line(colour="black"), 
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
+        axis.title=element_text(), 
         panel.grid.major=element_blank(), 
         panel.grid.minor=element_blank(), 
         panel.background=element_blank(), 
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"),
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
-        axis.title=element_text(), 
         strip.text.y=element_blank()) + 
   scale_y_continuous(breaks=seq(0, 1, 0.2), 
                      labels=seq(0, 1, 0.2), 
                      limits=c(0, 1.04)) + 
-  xlab("") + ylab("Proportion of days moved") + 
-  geom_text(aes(x=coden_pa, y=upper, label=tukey), nudge_y=0.05)
+  xlab("") + ylab("Proportion of days moved")
 
 dev.off()
 ```
@@ -1005,20 +1039,20 @@ effects$tukey <- c("a", "a")
 mod14 <- ggplot(effects, aes(x=pypa, y=fit, group=1)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) +
   geom_point(shape=21,size=3,fill="black",colour="black") +
+  geom_text(aes(x=pypa, y=upper, label=tukey), nudge_y=0.06) 
   theme(axis.line=element_line(colour="black"),
+        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
+        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), 
+        axis.title=element_text(),
         #legend.position="none" #legend
         panel.grid.major=element_blank(),
         panel.grid.minor=element_blank(),
         panel.background=element_blank(),
-        axis.text.y=element_text(angle=0, vjust=0.5, color="black"), #y axis tick label
-        axis.text.x=element_text(angle=0, vjust=0.5, color="black"),
-        axis.title=element_text(),
         strip.text.y=element_blank()) +
   scale_y_continuous(breaks=seq(0, 1, 0.2), 
                      labels=seq(0, 1, 0.2), 
                      limits=c(0, 1)) +
-  xlab("Pouch young") + ylab("Probability of survival") +
-  geom_text(aes(x=pypa, y=upper, label=tukey), nudge_y=0.06) #not working...
+  xlab("Pouch young") + ylab("Probability of survival")
 
 dev.off()
 ```
@@ -1069,14 +1103,9 @@ ggsave(filename="fig_3.tiff", fig3,
 animal <- animal %>% 
   mutate(trial=factor(trial), sex=factor(sex))
 
-mod1 <- glm(fate ~ trial + sex, data=animal, 
-            family=binomial(link=logit))
-
-mod2 <- glm(fate ~ trial, data=animal, 
-            family=binomial(link=logit))
-
-mod3 <- glm(fate ~ sex, data=animal, 
-            family=binomial(link=logit))
+mod1 <- glm(fate ~ trial + sex, data=animal, family=binomial(link=logit))
+mod2 <- glm(fate ~ trial, data=animal, family=binomial(link=logit))
+mod3 <- glm(fate ~ sex, data=animal, family=binomial(link=logit))
 
 AICc(mod1, mod2, mod3)
 summary(mod2)
